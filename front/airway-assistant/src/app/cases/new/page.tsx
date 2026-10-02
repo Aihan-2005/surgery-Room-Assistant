@@ -1,17 +1,23 @@
 "use client";
 
 import {
-  FormEvent,
+  type FormEvent,
   useState,
 } from "react";
 
-import { useRouter } from "next/navigation";
+import {
+  useRouter,
+} from "next/navigation";
 
 import {
-  ArrowLeft,
+  ArrowRight,
   ChevronDown,
   ClipboardPlus,
 } from "lucide-react";
+
+import {
+  NumericInput,
+} from "@/components/forms/numeric-input";
 
 import {
   createCase,
@@ -20,6 +26,10 @@ import {
 import type {
   NeckMobility,
 } from "@/lib/domain/types";
+
+import {
+  parseOptionalNumber,
+} from "@/lib/utils/numbers";
 
 export default function NewCasePage() {
   const router =
@@ -73,9 +83,46 @@ export default function NewCasePage() {
 
     setError(null);
 
-    if (!caseCode.trim()) {
+    const trimmedCaseCode =
+      caseCode.trim();
+
+    if (!trimmedCaseCode) {
       setError(
         "کد Case را وارد کنید.",
+      );
+
+      return;
+    }
+
+    const heightCm =
+      parseOptionalNumber(
+        height,
+      );
+
+    const weightKg =
+      parseOptionalNumber(
+        weight,
+      );
+
+    if (
+      height &&
+      (heightCm === undefined ||
+        heightCm <= 0)
+    ) {
+      setError(
+        "مقدار قد معتبر نیست.",
+      );
+
+      return;
+    }
+
+    if (
+      weight &&
+      (weightKg === undefined ||
+        weightKg <= 0)
+    ) {
+      setError(
+        "مقدار وزن معتبر نیست.",
       );
 
       return;
@@ -86,20 +133,18 @@ export default function NewCasePage() {
 
       const airwayCase =
         await createCase({
-          caseCode,
+          caseCode:
+            trimmedCaseCode,
 
-          heightCm: height
-            ? Number(height)
-            : undefined,
+          heightCm,
 
-          weightKg: weight
-            ? Number(weight)
-            : undefined,
+          weightKg,
 
           neckMobility,
 
           notes:
-            notes || undefined,
+            notes.trim() ||
+            undefined,
         });
 
       router.push(
@@ -127,6 +172,7 @@ export default function NewCasePage() {
       <header>
         <button
           type="button"
+          aria-label="بازگشت"
           onClick={() =>
             router.back()
           }
@@ -140,10 +186,11 @@ export default function NewCasePage() {
             border-slate-200
             bg-white
             text-slate-700
+            transition
+            active:scale-95
           "
         >
-          <ArrowLeft
-            className="rotate-180"
+          <ArrowRight
             size={19}
           />
         </button>
@@ -167,20 +214,21 @@ export default function NewCasePage() {
               text-slate-950
             "
           >
-            اطلاعات اولیه
+            مشخصات Case
           </h1>
 
           <p
             className="
               mt-2
+              max-w-sm
               text-sm
               leading-7
               text-slate-500
             "
           >
-            فعلاً فقط اطلاعاتی را
-            دریافت می‌کنیم که برای
-            نسخه اولیه مشخص شده‌اند.
+            اطلاعات اولیه را ثبت کنید.
+            تصاویر در مرحله بعد گرفته
+            خواهند شد.
           </p>
         </div>
       </header>
@@ -189,74 +237,23 @@ export default function NewCasePage() {
         onSubmit={
           handleSubmit
         }
-        className="mt-7 space-y-5"
+        className="
+          mt-7
+          space-y-6
+        "
       >
-        <div>
-          <label
-            htmlFor="caseCode"
-            className="
-              mb-2
-              block
-              text-sm
-              font-bold
-              text-slate-800
-            "
-          >
-            کد Case
-          </label>
-
-          <input
-            id="caseCode"
-            value={caseCode}
-            onChange={(event) =>
-              setCaseCode(
-                event.target.value,
-              )
-            }
-            placeholder="مثلاً OR-2026-001"
-            autoComplete="off"
-            className="
-              min-h-14
-              w-full
-              rounded-2xl
-              border
-              border-slate-200
-              bg-white
-              px-4
-              text-sm
-              text-slate-900
-              shadow-sm
-              transition
-              placeholder:text-slate-400
-              focus:border-sky-500
-              focus:ring-4
-              focus:ring-sky-100
-            "
-          />
-
-          <p
-            className="
-              mt-2
-              text-xs
-              leading-5
-              text-slate-500
-            "
-          >
-            فعلاً نام یا شناسه هویتی
-            بیمار وارد نکنید.
-          </p>
-        </div>
-
-        <div
+        <section
           className="
-            grid
-            grid-cols-2
-            gap-3
+            rounded-3xl
+            border
+            border-slate-200
+            bg-white
+            p-4
           "
         >
           <div>
             <label
-              htmlFor="height"
+              htmlFor="caseCode"
               className="
                 mb-2
                 block
@@ -265,235 +262,292 @@ export default function NewCasePage() {
                 text-slate-800
               "
             >
-              قد
+              کد Case
             </label>
 
-            <div className="relative">
-              <input
-                id="height"
-                inputMode="decimal"
-                type="number"
-                min="0"
-                step="0.1"
-                value={height}
-                onChange={(
-                  event,
-                ) =>
-                  setHeight(
-                    event.target
-                      .value,
-                  )
-                }
-                placeholder="175"
-                className="
-                  min-h-14
-                  w-full
-                  rounded-2xl
-                  border
-                  border-slate-200
-                  bg-white
-                  px-4
-                  pl-12
-                  text-sm
-                  focus:border-sky-500
-                  focus:ring-4
-                  focus:ring-sky-100
-                "
-              />
-
-              <span
-                className="
-                  absolute
-                  left-4
-                  top-1/2
-                  -translate-y-1/2
-                  text-xs
-                  text-slate-400
-                "
-              >
-                cm
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <label
-              htmlFor="weight"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
-            >
-              وزن
-            </label>
-
-            <div className="relative">
-              <input
-                id="weight"
-                inputMode="decimal"
-                type="number"
-                min="0"
-                step="0.1"
-                value={weight}
-                onChange={(
-                  event,
-                ) =>
-                  setWeight(
-                    event.target
-                      .value,
-                  )
-                }
-                placeholder="75"
-                className="
-                  min-h-14
-                  w-full
-                  rounded-2xl
-                  border
-                  border-slate-200
-                  bg-white
-                  px-4
-                  pl-12
-                  text-sm
-                  focus:border-sky-500
-                  focus:ring-4
-                  focus:ring-sky-100
-                "
-              />
-
-              <span
-                className="
-                  absolute
-                  left-4
-                  top-1/2
-                  -translate-y-1/2
-                  text-xs
-                  text-slate-400
-                "
-              >
-                kg
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label
-            htmlFor="neckMobility"
-            className="
-              mb-2
-              block
-              text-sm
-              font-bold
-              text-slate-800
-            "
-          >
-            حرکت گردن
-          </label>
-
-          <div className="relative">
-            <select
-              id="neckMobility"
-              value={
-                neckMobility
+            <input
+              id="caseCode"
+              value={caseCode}
+              disabled={
+                submitting
               }
               onChange={(
                 event,
               ) =>
-                setNeckMobility(
+                setCaseCode(
                   event.target
-                    .value as NeckMobility,
+                    .value,
                 )
               }
+              placeholder="مثلاً OR-2026-001"
+              autoComplete="off"
               className="
                 min-h-14
                 w-full
-                appearance-none
                 rounded-2xl
                 border
                 border-slate-200
                 bg-white
                 px-4
-                pl-12
-                text-sm
+                text-base
                 text-slate-900
+                shadow-sm
+                transition
+                placeholder:text-slate-400
                 focus:border-sky-500
                 focus:ring-4
                 focus:ring-sky-100
               "
-            >
-              <option value="unknown">
-                مشخص نشده
-              </option>
+            />
 
-              <option value="normal">
-                طبیعی
-              </option>
-
-              <option value="reduced">
-                محدود
-              </option>
-            </select>
-
-            <ChevronDown
-              size={18}
+            <p
               className="
-                pointer-events-none
-                absolute
-                left-4
-                top-1/2
-                -translate-y-1/2
-                text-slate-400
+                mt-2
+                text-xs
+                leading-6
+                text-slate-500
+              "
+            >
+              فعلاً اطلاعات هویتی
+              مستقیم بیمار مانند نام
+              و کد ملی وارد نشود.
+            </p>
+          </div>
+        </section>
+
+        <section
+          className="
+            rounded-3xl
+            border
+            border-slate-200
+            bg-white
+            p-4
+          "
+        >
+          <h2
+            className="
+              text-sm
+              font-bold
+              text-slate-900
+            "
+          >
+            اطلاعات فیزیکی
+          </h2>
+
+          <div
+            className="
+              mt-4
+              grid
+              grid-cols-2
+              gap-3
+            "
+          >
+            <div>
+              <label
+                htmlFor="height"
+                className="
+                  mb-2
+                  block
+                  text-sm
+                  font-medium
+                  text-slate-700
+                "
+              >
+                قد
+              </label>
+
+              <NumericInput
+                id="height"
+                value={height}
+                onChange={
+                  setHeight
+                }
+                placeholder="175"
+                unit="cm"
+                disabled={
+                  submitting
+                }
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="weight"
+                className="
+                  mb-2
+                  block
+                  text-sm
+                  font-medium
+                  text-slate-700
+                "
+              >
+                وزن
+              </label>
+
+              <NumericInput
+                id="weight"
+                value={weight}
+                onChange={
+                  setWeight
+                }
+                placeholder="75"
+                unit="kg"
+                disabled={
+                  submitting
+                }
+              />
+            </div>
+          </div>
+
+          <p
+            className="
+              mt-3
+              text-xs
+              leading-6
+              text-slate-500
+            "
+          >
+            امکان ورود عدد با
+            صفحه‌کلید فارسی یا انگلیسی
+            وجود دارد.
+          </p>
+        </section>
+
+        <section
+          className="
+            rounded-3xl
+            border
+            border-slate-200
+            bg-white
+            p-4
+          "
+        >
+          <div>
+            <label
+              htmlFor="neckMobility"
+              className="
+                mb-2
+                block
+                text-sm
+                font-bold
+                text-slate-800
+              "
+            >
+              وضعیت حرکت گردن
+            </label>
+
+            <div className="relative">
+              <select
+                id="neckMobility"
+                value={
+                  neckMobility
+                }
+                disabled={
+                  submitting
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setNeckMobility(
+                    event.target
+                      .value as NeckMobility,
+                  )
+                }
+                className="
+                  min-h-14
+                  w-full
+                  appearance-none
+                  rounded-2xl
+                  border
+                  border-slate-200
+                  bg-white
+                  px-4
+                  pl-12
+                  text-sm
+                  text-slate-900
+                  focus:border-sky-500
+                  focus:ring-4
+                  focus:ring-sky-100
+                "
+              >
+                <option value="unknown">
+                  مشخص نشده
+                </option>
+
+                <option value="normal">
+                  طبیعی
+                </option>
+
+                <option value="reduced">
+                  محدود
+                </option>
+              </select>
+
+              <ChevronDown
+                size={18}
+                className="
+                  pointer-events-none
+                  absolute
+                  left-4
+                  top-1/2
+                  -translate-y-1/2
+                  text-slate-400
+                "
+              />
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <label
+              htmlFor="notes"
+              className="
+                mb-2
+                block
+                text-sm
+                font-bold
+                text-slate-800
+              "
+            >
+              یادداشت
+            </label>
+
+            <textarea
+              id="notes"
+              rows={4}
+              value={notes}
+              disabled={
+                submitting
+              }
+              onChange={(
+                event,
+              ) =>
+                setNotes(
+                  event.target
+                    .value,
+                )
+              }
+              placeholder="یادداشت اختیاری..."
+              className="
+                w-full
+                resize-none
+                rounded-2xl
+                border
+                border-slate-200
+                bg-white
+                p-4
+                text-sm
+                leading-7
+                focus:border-sky-500
+                focus:ring-4
+                focus:ring-sky-100
               "
             />
           </div>
-        </div>
-
-        <div>
-          <label
-            htmlFor="notes"
-            className="
-              mb-2
-              block
-              text-sm
-              font-bold
-              text-slate-800
-            "
-          >
-            یادداشت
-          </label>
-
-          <textarea
-            id="notes"
-            rows={4}
-            value={notes}
-            onChange={(event) =>
-              setNotes(
-                event.target.value,
-              )
-            }
-            placeholder="یادداشت اختیاری..."
-            className="
-              w-full
-              resize-none
-              rounded-2xl
-              border
-              border-slate-200
-              bg-white
-              p-4
-              text-sm
-              leading-7
-              focus:border-sky-500
-              focus:ring-4
-              focus:ring-sky-100
-            "
-          />
-        </div>
+        </section>
 
         {error && (
           <div
+            role="alert"
             className="
               rounded-2xl
               bg-red-50
@@ -538,7 +592,7 @@ export default function NewCasePage() {
 
           {submitting
             ? "در حال ذخیره..."
-            : "ذخیره و ادامه"}
+            : "ذخیره و رفتن به تصویربرداری"}
         </button>
       </form>
     </div>

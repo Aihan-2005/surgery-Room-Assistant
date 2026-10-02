@@ -12,14 +12,14 @@ import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register"
 export const metadata: Metadata = {
   title: {
     default:
-      "Airway Assistant",
+      "Airway Imaging Assistant",
 
     template:
-      "%s | Airway Assistant",
+      "%s | Airway Imaging Assistant",
   },
 
   description:
-    "Mobile airway assessment assistant",
+    "Standardized mobile airway image capture and case collection",
 };
 
 export const viewport: Viewport = {

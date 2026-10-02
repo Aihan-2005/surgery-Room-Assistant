@@ -112,17 +112,18 @@ export default function HomePage() {
             Airway Assistant
           </p>
 
-          <h1
-            className="
-              mt-1
-              text-2xl
-              font-bold
-              tracking-tight
-              text-slate-950
-            "
-          >
-            ارزیابی راه هوایی
-          </h1>
+        <h1
+  className="
+    mt-1
+    text-2xl
+    font-bold
+    tracking-tight
+    text-slate-950
+  "
+>
+  دستیار تصویربرداری راه هوایی
+
+  </h1>
         </div>
 
         <NetworkPill />

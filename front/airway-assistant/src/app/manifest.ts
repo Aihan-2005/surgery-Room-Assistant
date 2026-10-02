@@ -5,13 +5,14 @@ import type {
 export default function manifest():
   MetadataRoute.Manifest {
   return {
-    name: "Airway Assistant",
+    name:
+      "Airway Imaging Assistant",
 
     short_name:
       "Airway",
 
     description:
-      "Mobile airway assessment assistant",
+      "Standardized airway image capture assistant",
 
     start_url: "/",
 

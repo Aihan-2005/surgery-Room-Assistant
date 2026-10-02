@@ -165,21 +165,21 @@ export default function CapturePage() {
     loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    return () => {
-      Object.values(
-        photos,
-      ).forEach(
-        (preview) => {
-          if (preview?.url) {
-            URL.revokeObjectURL(
-              preview.url,
-            );
-          }
-        },
-      );
-    };
-  }, [photos]);
+useEffect(() => {
+  return () => {
+    Object.values(
+      photos,
+    ).forEach(
+      (preview) => {
+        if (preview?.url) {
+          URL.revokeObjectURL(
+            preview.url,
+          );
+        }
+      },
+    );
+  };
+}, [photos]);
 
   const completedRequired =
     useMemo(() => {
@@ -389,16 +389,16 @@ export default function CapturePage() {
             مرحله ۲ از ۲
           </p>
 
-          <h1
-            className="
-              mt-1
-              text-2xl
-              font-bold
-              text-slate-950
-            "
-          >
-            ثبت تصاویر
-          </h1>
+     <h1
+  className="
+    mt-1
+    text-2xl
+    font-bold
+    text-slate-950
+  "
+>
+  تصویربرداری استاندارد
+</h1>
 
           <p
             className="
