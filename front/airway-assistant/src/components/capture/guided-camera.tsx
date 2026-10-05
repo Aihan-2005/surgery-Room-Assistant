@@ -10,7 +10,6 @@ import {
 
 import {
   Camera,
-  CameraIcon,
   Check,
   ImagePlus,
   RefreshCcw,
@@ -18,9 +17,28 @@ import {
   X,
 } from "lucide-react";
 
+import {
+  CameraGuide,
+} from "@/components/capture/camera-guide";
+
+import {
+  QualityFeedback,
+} from "@/components/capture/quality-feedback";
+
 import type {
   CaptureStep,
 } from "@/lib/config/capture-protocol";
+
+import {
+  analyzeImageData,
+  type ImageQualityResult,
+} from "@/lib/capture/image-quality";
+
+import type {
+  CaptureSource,
+  ImageQualityMetrics,
+  PreparedImage,
+} from "@/lib/domain/types";
 
 type CameraFacingMode =
   | "user"
@@ -32,8 +50,83 @@ interface GuidedCameraProps {
   onClose: () => void;
 
   onConfirm: (
-    file: File,
+    image: PreparedImage,
   ) => Promise<void>;
+}
+
+const ANALYSIS_WIDTH = 160;
+
+const ANALYSIS_HEIGHT = 120;
+
+const ANALYSIS_INTERVAL =
+  650;
+
+function toQualityMetrics(
+  quality:
+    | ImageQualityResult
+    | null,
+  file: File,
+): ImageQualityMetrics {
+  const flags =
+    quality?.checks
+      .filter(
+        (check) =>
+          check.level !==
+          "good",
+      )
+      .map(
+        (check) =>
+          check.key,
+      ) ?? [];
+
+  return {
+    width:
+      quality?.width,
+
+    height:
+      quality?.height,
+
+    fileSizeBytes:
+      file.size,
+
+    mimeType:
+      file.type,
+
+    brightness:
+      quality?.brightness,
+
+    meanBrightness:
+      quality?.brightness,
+
+    sharpness:
+      quality?.sharpness,
+
+    blurScore:
+      quality?.sharpness,
+
+    laplacianVariance:
+      quality?.sharpness,
+
+    overall:
+      quality?.overall ??
+      "unknown",
+
+    acceptable:
+      quality?.overall !==
+      "bad",
+
+    passed:
+      quality?.overall !==
+      "bad",
+
+    flags,
+
+    checks:
+      quality?.checks,
+
+    checkedAt:
+      new Date().toISOString(),
+  };
 }
 
 export function GuidedCamera({
@@ -46,7 +139,12 @@ export function GuidedCamera({
       null,
     );
 
-  const canvasRef =
+  const captureCanvasRef =
+    useRef<HTMLCanvasElement | null>(
+      null,
+    );
+
+  const analysisCanvasRef =
     useRef<HTMLCanvasElement | null>(
       null,
     );
@@ -67,61 +165,209 @@ export function GuidedCamera({
   const [
     previewUrl,
     setPreviewUrl,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<string | null>(
+      null,
+    );
 
   const [
     capturedFile,
     setCapturedFile,
-  ] = useState<File | null>(
-    null,
-  );
+  ] =
+    useState<File | null>(
+      null,
+    );
+
+  const [
+    captureSource,
+    setCaptureSource,
+  ] =
+    useState<CaptureSource>(
+      "camera",
+    );
 
   const [
     cameraError,
     setCameraError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<string | null>(
+      null,
+    );
 
   const [
     startingCamera,
     setStartingCamera,
-  ] = useState(true);
+  ] =
+    useState(true);
 
   const [
     confirming,
     setConfirming,
-  ] = useState(false);
+  ] =
+    useState(false);
+
+  const [
+    liveQuality,
+    setLiveQuality,
+  ] =
+    useState<ImageQualityResult | null>(
+      null,
+    );
+
+  const [
+    capturedQuality,
+    setCapturedQuality,
+  ] =
+    useState<ImageQualityResult | null>(
+      null,
+    );
 
   const stopCamera =
     useCallback(() => {
       streamRef.current
         ?.getTracks()
-        .forEach((track) => {
-          track.stop();
-        });
+        .forEach(
+          (track) => {
+            track.stop();
+          },
+        );
 
       streamRef.current =
         null;
 
-      if (videoRef.current) {
+      if (
+        videoRef.current
+      ) {
         videoRef.current.srcObject =
           null;
       }
     }, []);
 
+  const analyzeSource =
+    useCallback(
+      (
+        source:
+          CanvasImageSource,
+        sourceWidth: number,
+        sourceHeight: number,
+      ) => {
+        const canvas =
+          analysisCanvasRef.current;
+
+        if (!canvas) {
+          return null;
+        }
+
+        canvas.width =
+          ANALYSIS_WIDTH;
+
+        canvas.height =
+          ANALYSIS_HEIGHT;
+
+        const context =
+          canvas.getContext(
+            "2d",
+            {
+              willReadFrequently:
+                true,
+            },
+          );
+
+        if (!context) {
+          return null;
+        }
+
+        context.drawImage(
+          source,
+          0,
+          0,
+          ANALYSIS_WIDTH,
+          ANALYSIS_HEIGHT,
+        );
+
+        const imageData =
+          context.getImageData(
+            0,
+            0,
+            ANALYSIS_WIDTH,
+            ANALYSIS_HEIGHT,
+          );
+
+        return analyzeImageData(
+          imageData,
+          sourceWidth,
+          sourceHeight,
+        );
+      },
+      [],
+    );
+
+  const analyzeFile =
+    useCallback(
+      (
+        file: File,
+      ): Promise<ImageQualityResult | null> => {
+        return new Promise(
+          (resolve) => {
+            const url =
+              URL.createObjectURL(
+                file,
+              );
+
+            const image =
+              new Image();
+
+            image.onload =
+              () => {
+                const result =
+                  analyzeSource(
+                    image,
+                    image.naturalWidth,
+                    image.naturalHeight,
+                  );
+
+                URL.revokeObjectURL(
+                  url,
+                );
+
+                resolve(
+                  result,
+                );
+              };
+
+            image.onerror =
+              () => {
+                URL.revokeObjectURL(
+                  url,
+                );
+
+                resolve(null);
+              };
+
+            image.src =
+              url;
+          },
+        );
+      },
+      [analyzeSource],
+    );
+
   const startCamera =
     useCallback(async () => {
       stopCamera();
 
-      setStartingCamera(true);
+      setStartingCamera(
+        true,
+      );
+
       setCameraError(null);
+
+      setLiveQuality(null);
 
       try {
         if (
-          !navigator.mediaDevices
+          !navigator
+            .mediaDevices
             ?.getUserMedia
         ) {
           throw new Error(
@@ -169,10 +415,12 @@ export function GuidedCamera({
         );
 
         setCameraError(
-          "دسترسی مستقیم به دوربین ممکن نیست. می‌توانید از گزینه انتخاب عکس یا دوربین سیستم استفاده کنید.",
+          "دسترسی مستقیم به دوربین ممکن نیست. دسترسی Camera مرورگر را بررسی کنید یا از انتخاب تصویر استفاده کنید.",
         );
       } finally {
-        setStartingCamera(false);
+        setStartingCamera(
+          false,
+        );
       }
     }, [
       facingMode,
@@ -180,7 +428,7 @@ export function GuidedCamera({
     ]);
 
   useEffect(() => {
-    startCamera();
+    void startCamera();
 
     return () => {
       stopCamera();
@@ -188,6 +436,71 @@ export function GuidedCamera({
   }, [
     startCamera,
     stopCamera,
+  ]);
+
+  useEffect(() => {
+    if (
+      previewUrl ||
+      cameraError ||
+      startingCamera
+    ) {
+      return;
+    }
+
+    let timeout:
+      number | undefined;
+
+    const checkFrame =
+      () => {
+        const video =
+          videoRef.current;
+
+        if (
+          video &&
+          video.readyState >=
+            HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth >
+            0 &&
+          video.videoHeight >
+            0
+        ) {
+          setLiveQuality(
+            analyzeSource(
+              video,
+              video.videoWidth,
+              video.videoHeight,
+            ),
+          );
+        }
+
+        timeout =
+          window.setTimeout(
+            checkFrame,
+            ANALYSIS_INTERVAL,
+          );
+      };
+
+    timeout =
+      window.setTimeout(
+        checkFrame,
+        400,
+      );
+
+    return () => {
+      if (
+        timeout !==
+        undefined
+      ) {
+        window.clearTimeout(
+          timeout,
+        );
+      }
+    };
+  }, [
+    analyzeSource,
+    cameraError,
+    previewUrl,
+    startingCamera,
   ]);
 
   useEffect(() => {
@@ -202,12 +515,6 @@ export function GuidedCamera({
 
   function handleClose() {
     stopCamera();
-
-    if (previewUrl) {
-      URL.revokeObjectURL(
-        previewUrl,
-      );
-    }
 
     onClose();
   }
@@ -231,9 +538,12 @@ export function GuidedCamera({
       videoRef.current;
 
     const canvas =
-      canvasRef.current;
+      captureCanvasRef.current;
 
-    if (!video || !canvas) {
+    if (
+      !video ||
+      !canvas
+    ) {
       return;
     }
 
@@ -243,7 +553,10 @@ export function GuidedCamera({
     const height =
       video.videoHeight;
 
-    if (!width || !height) {
+    if (
+      !width ||
+      !height
+    ) {
       setCameraError(
         "تصویر دوربین هنوز آماده نیست.",
       );
@@ -274,13 +587,20 @@ export function GuidedCamera({
       height,
     );
 
+    const quality =
+      analyzeSource(
+        canvas,
+        width,
+        height,
+      );
+
     const blob =
       await new Promise<Blob | null>(
         (resolve) => {
           canvas.toBlob(
             resolve,
             "image/jpeg",
-            0.9,
+            0.92,
           );
         },
       );
@@ -298,17 +618,28 @@ export function GuidedCamera({
         [blob],
         `${step.kind}-${Date.now()}.jpg`,
         {
-          type: "image/jpeg",
+          type:
+            "image/jpeg",
         },
       );
 
-    const url =
+    setCaptureSource(
+      "camera",
+    );
+
+    setCapturedFile(
+      file,
+    );
+
+    setCapturedQuality(
+      quality,
+    );
+
+    setPreviewUrl(
       URL.createObjectURL(
         blob,
-      );
-
-    setCapturedFile(file);
-    setPreviewUrl(url);
+      ),
+    );
 
     stopCamera();
   }
@@ -318,9 +649,11 @@ export function GuidedCamera({
       ChangeEvent<HTMLInputElement>,
   ) {
     const file =
-      event.target.files?.[0];
+      event.target
+        .files?.[0];
 
-    event.target.value = "";
+    event.target.value =
+      "";
 
     if (!file) {
       return;
@@ -338,21 +671,34 @@ export function GuidedCamera({
       return;
     }
 
-    if (previewUrl) {
-      URL.revokeObjectURL(
-        previewUrl,
-      );
-    }
+    setCaptureSource(
+      "gallery",
+    );
 
-    const url =
+    setCapturedFile(
+      file,
+    );
+
+    setCapturedQuality(
+      null,
+    );
+
+    setPreviewUrl(
       URL.createObjectURL(
+        file,
+      ),
+    );
+
+    stopCamera();
+
+    const quality =
+      await analyzeFile(
         file,
       );
 
-    setCapturedFile(file);
-    setPreviewUrl(url);
-
-    stopCamera();
+    setCapturedQuality(
+      quality,
+    );
   }
 
   async function handleRetake() {
@@ -363,7 +709,16 @@ export function GuidedCamera({
     }
 
     setPreviewUrl(null);
+
     setCapturedFile(null);
+
+    setCapturedQuality(
+      null,
+    );
+
+    setCaptureSource(
+      "camera",
+    );
 
     await startCamera();
   }
@@ -373,11 +728,28 @@ export function GuidedCamera({
       return;
     }
 
+    const preparedImage:
+      PreparedImage = {
+      file:
+        capturedFile,
+
+      source:
+        captureSource,
+
+      qc:
+        toQualityMetrics(
+          capturedQuality,
+          capturedFile,
+        ),
+    };
+
     try {
-      setConfirming(true);
+      setConfirming(
+        true,
+      );
 
       await onConfirm(
-        capturedFile,
+        preparedImage,
       );
 
       handleClose();
@@ -388,9 +760,16 @@ export function GuidedCamera({
         "ذخیره تصویر انجام نشد.",
       );
     } finally {
-      setConfirming(false);
+      setConfirming(
+        false,
+      );
     }
   }
+
+  const displayedQuality =
+    previewUrl
+      ? capturedQuality
+      : liveQuality;
 
   return (
     <div
@@ -412,10 +791,10 @@ export function GuidedCamera({
           top-0
           z-30
           bg-gradient-to-b
-          from-black/80
+          from-black/85
           to-transparent
           px-4
-          pb-8
+          pb-10
           pt-[calc(env(safe-area-inset-top)+12px)]
         "
       >
@@ -428,24 +807,12 @@ export function GuidedCamera({
           "
         >
           <div>
-            <p
-              className="
-                text-xs
-                font-medium
-                text-white/70
-              "
-            >
-              ثبت تصویر
+            <p className="text-xs text-white/60">
+              تصویربرداری
             </p>
 
-            <h2
-              className="
-                mt-1
-                text-base
-                font-bold
-              "
-            >
-              {step.shortTitle}
+            <h2 className="mt-1 text-base font-bold">
+              {step.title}
             </h2>
           </div>
 
@@ -462,7 +829,6 @@ export function GuidedCamera({
               justify-center
               rounded-full
               bg-black/40
-              backdrop-blur
             "
           >
             <X size={22} />
@@ -479,10 +845,10 @@ export function GuidedCamera({
         "
       >
         {previewUrl ? (
-
-<img
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={previewUrl}
-            alt="پیش‌نمایش تصویر ثبت‌شده"
+            alt="پیش‌نمایش تصویر"
             className="
               h-full
               w-full
@@ -504,11 +870,30 @@ export function GuidedCamera({
         )}
 
         {!previewUrl &&
-          !cameraError && (
+          !cameraError &&
+          !startingCamera && (
             <CameraGuide
               step={step}
             />
           )}
+
+        {!cameraError && (
+          <div
+            className="
+              absolute
+              bottom-4
+              left-4
+              right-4
+              z-20
+            "
+          >
+            <QualityFeedback
+              quality={
+                displayedQuality
+              }
+            />
+          </div>
+        )}
 
         {startingCamera &&
           !previewUrl && (
@@ -516,32 +901,20 @@ export function GuidedCamera({
               className="
                 absolute
                 inset-0
+                z-40
                 flex
                 items-center
                 justify-center
                 bg-black/60
               "
             >
-              <div
-                className="
-                  text-center
-                "
-              >
+              <div className="text-center">
                 <RefreshCcw
-                  className="
-                    mx-auto
-                    animate-spin
-                  "
+                  className="mx-auto animate-spin"
                   size={28}
                 />
 
-                <p
-                  className="
-                    mt-3
-                    text-sm
-                    text-white/80
-                  "
-                >
+                <p className="mt-3 text-sm text-white/80">
                   در حال فعال‌کردن
                   دوربین...
                 </p>
@@ -571,32 +944,16 @@ export function GuidedCamera({
                   text-slate-900
                 "
               >
-                <CameraIcon
-                  className="
-                    mx-auto
-                    text-slate-400
-                  "
+                <Camera
+                  className="mx-auto text-slate-400"
                   size={36}
                 />
 
-                <p
-                  className="
-                    mt-4
-                    text-sm
-                    font-bold
-                  "
-                >
+                <p className="mt-4 text-sm font-bold">
                   دوربین در دسترس نیست
                 </p>
 
-                <p
-                  className="
-                    mt-2
-                    text-xs
-                    leading-6
-                    text-slate-500
-                  "
-                >
+                <p className="mt-2 text-xs leading-6 text-slate-500">
                   {cameraError}
                 </p>
 
@@ -639,7 +996,16 @@ export function GuidedCamera({
       </div>
 
       <canvas
-        ref={canvasRef}
+        ref={
+          captureCanvasRef
+        }
+        className="hidden"
+      />
+
+      <canvas
+        ref={
+          analysisCanvasRef
+        }
         className="hidden"
       />
 
@@ -659,21 +1025,15 @@ export function GuidedCamera({
                 text-center
                 text-xs
                 leading-6
-                text-white/65
+                text-white/60
               "
             >
               {
-                step.description
+                step.liveInstruction
               }
             </p>
 
-            <div
-              className="
-                grid
-                grid-cols-3
-                items-center
-              "
-            >
+            <div className="grid grid-cols-3 items-center">
               <label
                 className="
                   flex
@@ -796,7 +1156,7 @@ export function GuidedCamera({
                 size={18}
               />
 
-              تکرار
+              تکرار عکس
             </button>
 
             <button
@@ -828,121 +1188,14 @@ export function GuidedCamera({
 
               {confirming
                 ? "در حال ذخیره..."
-                : "تأیید تصویر"}
+                : capturedQuality?.overall ===
+                    "bad"
+                  ? "تأیید با وجود هشدار"
+                  : "تأیید تصویر"}
             </button>
           </div>
         )}
       </footer>
-    </div>
-  );
-}
-
-interface CameraGuideProps {
-  step: CaptureStep;
-}
-
-function CameraGuide({
-  step,
-}: CameraGuideProps) {
-  const isLateral =
-    step.kind ===
-    "lateral_neutral";
-
-  return (
-    <div
-      className="
-        pointer-events-none
-        absolute
-        inset-0
-      "
-    >
-      <div
-        className="
-          absolute
-          inset-x-5
-          top-1/2
-          -translate-y-1/2
-        "
-      >
-        <div
-          className="
-            relative
-            mx-auto
-            aspect-[3/4]
-            max-h-[62vh]
-            max-w-[78vw]
-          "
-        >
-          <div
-            className="
-              absolute
-              inset-0
-              rounded-[46%]
-              border-2
-              border-dashed
-              border-white/80
-              shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]
-            "
-          />
-
-          <div
-            className={`
-              absolute
-              bottom-[10%]
-              ${
-                isLateral
-                  ? "left-[4%]"
-                  : "right-[4%]"
-              }
-            `}
-          >
-            <div
-              className="
-                flex
-                size-16
-                items-center
-                justify-center
-                rounded-xl
-                border-2
-                border-dashed
-                border-amber-300
-                bg-amber-300/10
-              "
-            >
-              <span
-                className="
-                  text-[10px]
-                  font-bold
-                  text-amber-200
-                "
-              >
-                Marker
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <p
-          className="
-            mx-auto
-            mt-5
-            max-w-xs
-            rounded-full
-            bg-black/50
-            px-4
-            py-2
-            text-center
-            text-xs
-            leading-5
-            text-white
-            backdrop-blur
-          "
-        >
-          {isLateral
-            ? "نمای جانبی صورت را داخل کادر قرار دهید"
-            : "صورت بیمار را در مرکز کادر قرار دهید"}
-        </p>
-      </div>
     </div>
   );
 }

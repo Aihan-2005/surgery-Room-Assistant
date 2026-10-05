@@ -11,7 +11,6 @@ import {
 
 import {
   ArrowRight,
-  ChevronDown,
   ClipboardPlus,
 } from "lucide-react";
 
@@ -24,12 +23,61 @@ import {
 } from "@/lib/db/database";
 
 import type {
-  NeckMobility,
+  BiologicalSex,
+  MallampatiClass,
+  UpperLipBiteClass,
 } from "@/lib/domain/types";
 
 import {
   parseOptionalNumber,
 } from "@/lib/utils/numbers";
+
+/* -------------------------------------------------------------------------- */
+/*                                Type Parsers                                */
+/* -------------------------------------------------------------------------- */
+
+function parseMallampatiClass(
+  value: string,
+): MallampatiClass {
+  switch (value) {
+    case "1":
+      return 1;
+
+    case "2":
+      return 2;
+
+    case "3":
+      return 3;
+
+    case "4":
+      return 4;
+
+    default:
+      return "unknown";
+  }
+}
+
+function parseUpperLipBiteClass(
+  value: string,
+): UpperLipBiteClass {
+  switch (value) {
+    case "1":
+      return 1;
+
+    case "2":
+      return 2;
+
+    case "3":
+      return 3;
+
+    default:
+      return "unknown";
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   Page                                     */
+/* -------------------------------------------------------------------------- */
 
 export default function NewCasePage() {
   const router =
@@ -38,42 +86,78 @@ export default function NewCasePage() {
   const [
     submitting,
     setSubmitting,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     error,
     setError,
-  ] = useState<string | null>(
-    null,
-  );
-
-  const [
-    caseCode,
-    setCaseCode,
-  ] = useState("");
-
-  const [
-    height,
-    setHeight,
-  ] = useState("");
-
-  const [
-    weight,
-    setWeight,
-  ] = useState("");
-
-  const [
-    neckMobility,
-    setNeckMobility,
   ] =
-    useState<NeckMobility>(
+    useState<
+      string | null
+    >(null);
+
+  /* ---------------------------------------------------------------------- */
+  /* Patient info                                                           */
+  /* ---------------------------------------------------------------------- */
+
+  const [
+    fullName,
+    setFullName,
+  ] =
+    useState("");
+
+  const [
+    age,
+    setAge,
+  ] =
+    useState("");
+
+  const [
+    sex,
+    setSex,
+  ] =
+    useState<BiologicalSex>(
       "unknown",
     );
 
   const [
-    notes,
-    setNotes,
-  ] = useState("");
+    height,
+    setHeight,
+  ] =
+    useState("");
+
+  const [
+    weight,
+    setWeight,
+  ] =
+    useState("");
+
+  /* ---------------------------------------------------------------------- */
+  /* Airway                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const [
+    mallampati,
+    setMallampati,
+  ] =
+    useState("");
+
+  const [
+    upperLipBite,
+    setUpperLipBite,
+  ] =
+    useState("");
+
+  const [
+    neckRotation,
+    setNeckRotation,
+  ] =
+    useState("");
+
+  /* ---------------------------------------------------------------------- */
+  /* Submit                                                                 */
+  /* ---------------------------------------------------------------------- */
 
   async function handleSubmit(
     event:
@@ -83,16 +167,18 @@ export default function NewCasePage() {
 
     setError(null);
 
-    const trimmedCaseCode =
-      caseCode.trim();
+    const normalizedFullName =
+      fullName
+        .replace(
+          /\s+/g,
+          " ",
+        )
+        .trim();
 
-    if (!trimmedCaseCode) {
-      setError(
-        "کد Case را وارد کنید.",
+    const ageYears =
+      parseOptionalNumber(
+        age,
       );
-
-      return;
-    }
 
     const heightCm =
       parseOptionalNumber(
@@ -104,13 +190,46 @@ export default function NewCasePage() {
         weight,
       );
 
+    const neckRotationDegrees =
+      parseOptionalNumber(
+        neckRotation,
+      );
+
+    /* -------------------------------------------------------------------- */
+    /* Validation                                                           */
+    /* -------------------------------------------------------------------- */
+
     if (
-      height &&
-      (heightCm === undefined ||
-        heightCm <= 0)
+      age &&
+      (
+        ageYears ===
+          undefined ||
+        ageYears <=
+          0 ||
+        ageYears >
+          120
+      )
     ) {
       setError(
-        "مقدار قد معتبر نیست.",
+        "سن واردشده معتبر نیست.",
+      );
+
+      return;
+    }
+
+    if (
+      height &&
+      (
+        heightCm ===
+          undefined ||
+        heightCm <=
+          0 ||
+        heightCm >
+          250
+      )
+    ) {
+      setError(
+        "قد واردشده معتبر نیست.",
       );
 
       return;
@@ -118,54 +237,182 @@ export default function NewCasePage() {
 
     if (
       weight &&
-      (weightKg === undefined ||
-        weightKg <= 0)
+      (
+        weightKg ===
+          undefined ||
+        weightKg <=
+          0 ||
+        weightKg >
+          500
+      )
     ) {
       setError(
-        "مقدار وزن معتبر نیست.",
+        "وزن واردشده معتبر نیست.",
       );
 
       return;
     }
 
+    if (
+      neckRotation &&
+      (
+        neckRotationDegrees ===
+          undefined ||
+        neckRotationDegrees <
+          0 ||
+        neckRotationDegrees >
+          180
+      )
+    ) {
+      setError(
+        "زاویه حرکت گردن باید بین ۰ تا ۱۸۰ درجه باشد.",
+      );
+
+      return;
+    }
+
+    const mallampatiClass =
+      parseMallampatiClass(
+        mallampati,
+      );
+
+    const upperLipBiteClass =
+      parseUpperLipBiteClass(
+        upperLipBite,
+      );
+
+    /* -------------------------------------------------------------------- */
+    /* Create Case                                                          */
+    /* -------------------------------------------------------------------- */
+
     try {
-      setSubmitting(true);
+      setSubmitting(
+        true,
+      );
 
       const airwayCase =
         await createCase({
-          caseCode:
-            trimmedCaseCode,
-
-          heightCm,
-
-          weightKg,
-
-          neckMobility,
-
-          notes:
-            notes.trim() ||
+          fullName:
+            normalizedFullName ||
             undefined,
+
+          clinical: {
+            fullName:
+              normalizedFullName ||
+              undefined,
+
+            ageYears,
+
+            sex,
+
+            heightCm,
+
+            weightKg,
+
+            /*
+             * UI فعلی دیگر normal/reduced ندارد.
+             * مقدار واقعی‌تر در زاویه ثبت می‌شود.
+             */
+            neckMobility:
+              "unknown",
+
+            neckRotationDegrees,
+
+            mallampatiClass,
+
+            upperLipBiteClass,
+
+            interincisorDistanceMm:
+              undefined,
+
+            thyromentalDistanceMm:
+              undefined,
+
+            sternomentalDistanceMm:
+              undefined,
+
+            hyomentalDistanceMm:
+              undefined,
+
+            neckCircumferenceMm:
+              undefined,
+
+            retrognathia:
+              "unknown",
+
+            prominentUpperIncisors:
+              "unknown",
+
+            priorDifficultIntubation:
+              "unknown",
+          },
         });
 
       router.push(
         `/cases/${airwayCase.id}/capture`,
       );
-    } catch (error) {
-      console.error(error);
+    } catch (
+      caughtError
+    ) {
+      console.error(
+        caughtError,
+      );
 
       setError(
-        "ذخیره اطلاعات انجام نشد. دوباره تلاش کنید.",
+        "ذخیره اطلاعات بیمار انجام نشد. دوباره تلاش کنید.",
       );
     } finally {
-      setSubmitting(false);
+      setSubmitting(
+        false,
+      );
     }
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* Styles                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const fieldClassName = `
+    h-14
+    w-full
+    rounded-2xl
+    border
+    border-slate-200
+    bg-white
+    px-4
+    text-base
+    text-slate-900
+    shadow-sm
+    outline-none
+    transition
+    placeholder:text-slate-400
+    focus:border-sky-500
+    focus:ring-4
+    focus:ring-sky-100
+    disabled:cursor-not-allowed
+    disabled:bg-slate-100
+    disabled:opacity-60
+  `;
+
+  const labelClassName = `
+    mb-2
+    flex
+    min-h-6
+    items-end
+    text-sm
+    font-medium
+    text-slate-700
+  `;
+
+  /* ---------------------------------------------------------------------- */
+  /* Render                                                                 */
+  /* ---------------------------------------------------------------------- */
 
   return (
     <div
       className="
         px-4
-        pb-8
+        pb-10
         pt-5
       "
     >
@@ -203,7 +450,7 @@ export default function NewCasePage() {
               text-sky-700
             "
           >
-            مرحله ۱ از ۲
+            مرحله ۱
           </p>
 
           <h1
@@ -214,21 +461,20 @@ export default function NewCasePage() {
               text-slate-950
             "
           >
-            مشخصات Case
+            اطلاعات بیمار
           </h1>
 
           <p
             className="
               mt-2
-              max-w-sm
               text-sm
               leading-7
               text-slate-500
             "
           >
-            اطلاعات اولیه را ثبت کنید.
-            تصاویر در مرحله بعد گرفته
-            خواهند شد.
+            اطلاعات موردنیاز را وارد
+            کنید و سپس وارد مرحله
+            تصویربرداری شوید.
           </p>
         </div>
       </header>
@@ -242,123 +488,166 @@ export default function NewCasePage() {
           space-y-6
         "
       >
-        <section
-          className="
-            rounded-3xl
-            border
-            border-slate-200
-            bg-white
-            p-4
-          "
-        >
-          <div>
-            <label
-              htmlFor="caseCode"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
-            >
-              کد Case
-            </label>
+        {/* -------------------------------------------------------------- */}
+        {/* Full Name                                                      */}
+        {/* -------------------------------------------------------------- */}
 
-            <input
-              id="caseCode"
-              value={caseCode}
-              disabled={
-                submitting
-              }
-              onChange={(
-                event,
-              ) =>
-                setCaseCode(
-                  event.target
-                    .value,
-                )
-              }
-              placeholder="مثلاً OR-2026-001"
-              autoComplete="off"
+        <div>
+          <label
+            htmlFor="fullName"
+            className={
+              labelClassName
+            }
+          >
+            نام و نام خانوادگی
+            <span
               className="
-                min-h-14
-                w-full
-                rounded-2xl
-                border
-                border-slate-200
-                bg-white
-                px-4
-                text-base
-                text-slate-900
-                shadow-sm
-                transition
-                placeholder:text-slate-400
-                focus:border-sky-500
-                focus:ring-4
-                focus:ring-sky-100
-              "
-            />
-
-            <p
-              className="
-                mt-2
+                mr-1.5
                 text-xs
-                leading-6
-                text-slate-500
+                font-normal
+                text-slate-400
               "
             >
-              فعلاً اطلاعات هویتی
-              مستقیم بیمار مانند نام
-              و کد ملی وارد نشود.
-            </p>
-          </div>
-        </section>
+              اختیاری
+            </span>
+          </label>
 
-        <section
-          className="
-            rounded-3xl
-            border
-            border-slate-200
-            bg-white
-            p-4
-          "
-        >
+          <input
+            id="fullName"
+            type="text"
+            autoComplete="off"
+            value={
+              fullName
+            }
+            disabled={
+              submitting
+            }
+            onChange={(
+              event,
+            ) =>
+              setFullName(
+                event.target
+                  .value,
+              )
+            }
+            placeholder="نام و نام خانوادگی"
+            className={
+              fieldClassName
+            }
+          />
+        </div>
+
+        {/* -------------------------------------------------------------- */}
+        {/* Base information                                               */}
+        {/* -------------------------------------------------------------- */}
+
+        <div>
           <h2
             className="
-              text-sm
+              mb-4
+              text-base
               font-bold
               text-slate-900
             "
           >
-            اطلاعات فیزیکی
+            اطلاعات پایه
           </h2>
 
           <div
             className="
-              mt-4
               grid
               grid-cols-2
-              gap-3
+              gap-x-3
+              gap-y-4
             "
           >
-            <div>
+            {/* Age */}
+
+            <div className="min-w-0">
+              <label
+                htmlFor="age"
+                className={
+                  labelClassName
+                }
+              >
+                سن
+              </label>
+
+              <NumericInput
+                id="age"
+                value={age}
+                onChange={
+                  setAge
+                }
+                placeholder="35"
+                unit="سال"
+                disabled={
+                  submitting
+                }
+              />
+            </div>
+
+            {/* Sex */}
+
+            <div className="min-w-0">
+              <label
+                htmlFor="sex"
+                className={
+                  labelClassName
+                }
+              >
+                جنسیت
+              </label>
+
+              <select
+                id="sex"
+                value={sex}
+                disabled={
+                  submitting
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setSex(
+                    event.target
+                      .value as BiologicalSex,
+                  )
+                }
+                className={
+                  fieldClassName
+                }
+              >
+                <option value="unknown">
+                  انتخاب کنید
+                </option>
+
+                <option value="male">
+                  مرد
+                </option>
+
+                <option value="female">
+                  زن
+                </option>
+              </select>
+            </div>
+
+            {/* Height */}
+
+            <div className="min-w-0">
               <label
                 htmlFor="height"
-                className="
-                  mb-2
-                  block
-                  text-sm
-                  font-medium
-                  text-slate-700
-                "
+                className={
+                  labelClassName
+                }
               >
                 قد
               </label>
 
               <NumericInput
                 id="height"
-                value={height}
+                value={
+                  height
+                }
                 onChange={
                   setHeight
                 }
@@ -370,23 +659,23 @@ export default function NewCasePage() {
               />
             </div>
 
-            <div>
+            {/* Weight */}
+
+            <div className="min-w-0">
               <label
                 htmlFor="weight"
-                className="
-                  mb-2
-                  block
-                  text-sm
-                  font-medium
-                  text-slate-700
-                "
+                className={
+                  labelClassName
+                }
               >
                 وزن
               </label>
 
               <NumericInput
                 id="weight"
-                value={weight}
+                value={
+                  weight
+                }
                 onChange={
                   setWeight
                 }
@@ -398,152 +687,173 @@ export default function NewCasePage() {
               />
             </div>
           </div>
+        </div>
 
-          <p
-            className="
-              mt-3
-              text-xs
-              leading-6
-              text-slate-500
-            "
-          >
-            امکان ورود عدد با
-            صفحه‌کلید فارسی یا انگلیسی
-            وجود دارد.
-          </p>
-        </section>
+        {/* -------------------------------------------------------------- */}
+        {/* Airway                                                        */}
+        {/* -------------------------------------------------------------- */}
 
-        <section
+        <div
           className="
-            rounded-3xl
-            border
-            border-slate-200
-            bg-white
-            p-4
+            grid
+            grid-cols-2
+            gap-x-3
+            gap-y-4
           "
         >
-          <div>
+          {/* Mallampati */}
+
+          <div className="min-w-0">
             <label
-              htmlFor="neckMobility"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
+              htmlFor="mallampati"
+              className={
+                labelClassName
+              }
             >
-              وضعیت حرکت گردن
+              Mallampati
             </label>
 
-            <div className="relative">
-              <select
-                id="neckMobility"
-                value={
-                  neckMobility
-                }
-                disabled={
-                  submitting
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setNeckMobility(
-                    event.target
-                      .value as NeckMobility,
-                  )
-                }
-                className="
-                  min-h-14
-                  w-full
-                  appearance-none
-                  rounded-2xl
-                  border
-                  border-slate-200
-                  bg-white
-                  px-4
-                  pl-12
-                  text-sm
-                  text-slate-900
-                  focus:border-sky-500
-                  focus:ring-4
-                  focus:ring-sky-100
-                "
-              >
-                <option value="unknown">
-                  مشخص نشده
-                </option>
-
-                <option value="normal">
-                  طبیعی
-                </option>
-
-                <option value="reduced">
-                  محدود
-                </option>
-              </select>
-
-              <ChevronDown
-                size={18}
-                className="
-                  pointer-events-none
-                  absolute
-                  left-4
-                  top-1/2
-                  -translate-y-1/2
-                  text-slate-400
-                "
-              />
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <label
-              htmlFor="notes"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
-            >
-              یادداشت
-            </label>
-
-            <textarea
-              id="notes"
-              rows={4}
-              value={notes}
+            <select
+              id="mallampati"
+              value={
+                mallampati
+              }
               disabled={
                 submitting
               }
               onChange={(
                 event,
               ) =>
-                setNotes(
+                setMallampati(
                   event.target
                     .value,
                 )
               }
-              placeholder="یادداشت اختیاری..."
-              className="
-                w-full
-                resize-none
-                rounded-2xl
-                border
-                border-slate-200
-                bg-white
-                p-4
-                text-sm
-                leading-7
-                focus:border-sky-500
-                focus:ring-4
-                focus:ring-sky-100
-              "
-            />
+              className={
+                fieldClassName
+              }
+            >
+              <option value="">
+                انتخاب کنید
+              </option>
+
+              <option value="1">
+                Class I
+              </option>
+
+              <option value="2">
+                Class II
+              </option>
+
+              <option value="3">
+                Class III
+              </option>
+
+              <option value="4">
+                Class IV
+              </option>
+            </select>
           </div>
-        </section>
+
+          {/* Upper Lip Bite */}
+
+          <div className="min-w-0">
+            <label
+              htmlFor="upperLipBite"
+              className={
+                labelClassName
+              }
+            >
+              Upper Lip Bite
+            </label>
+
+            <select
+              id="upperLipBite"
+              value={
+                upperLipBite
+              }
+              disabled={
+                submitting
+              }
+              onChange={(
+                event,
+              ) =>
+                setUpperLipBite(
+                  event.target
+                    .value,
+                )
+              }
+              className={
+                fieldClassName
+              }
+            >
+              <option value="">
+                انتخاب کنید
+              </option>
+
+              <option value="1">
+                Class I
+              </option>
+
+              <option value="2">
+                Class II
+              </option>
+
+              <option value="3">
+                Class III
+              </option>
+            </select>
+          </div>
+
+          {/* Neck Rotation */}
+
+          <div
+            className="
+              col-span-2
+              min-w-0
+            "
+          >
+            <label
+              htmlFor="neckRotation"
+              className={
+                labelClassName
+              }
+            >
+              زاویه حرکت / چرخش گردن
+            </label>
+
+            <NumericInput
+              id="neckRotation"
+              value={
+                neckRotation
+              }
+              onChange={
+                setNeckRotation
+              }
+              placeholder="مثلاً 90"
+              unit="°"
+              disabled={
+                submitting
+              }
+            />
+
+            <p
+              className="
+                mt-2
+                text-xs
+                leading-6
+                text-slate-400
+              "
+            >
+              مقدار زاویه حرکت گردن را
+              بر حسب درجه وارد کنید.
+            </p>
+          </div>
+        </div>
+
+        {/* -------------------------------------------------------------- */}
+        {/* Error                                                          */}
+        {/* -------------------------------------------------------------- */}
 
         {error && (
           <div
@@ -561,6 +871,10 @@ export default function NewCasePage() {
           </div>
         )}
 
+        {/* -------------------------------------------------------------- */}
+        {/* Submit                                                         */}
+        {/* -------------------------------------------------------------- */}
+
         <button
           type="submit"
           disabled={
@@ -568,7 +882,7 @@ export default function NewCasePage() {
           }
           className="
             flex
-            min-h-14
+            h-14
             w-full
             items-center
             justify-center
@@ -592,9 +906,10 @@ export default function NewCasePage() {
 
           {submitting
             ? "در حال ذخیره..."
-            : "ذخیره و رفتن به تصویربرداری"}
+            : "ذخیره و ادامه تصویربرداری"}
         </button>
       </form>
     </div>
   );
 }
+
