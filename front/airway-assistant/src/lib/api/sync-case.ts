@@ -12,14 +12,16 @@ import type {
   CaseSyncResponse,
 } from "@/lib/api/contracts";
 
-export class CaseSyncError extends Error {
+export class CaseSyncError
+  extends Error {
   code: string;
 
   status?: number;
 
   constructor(
     message: string,
-    code = "SYNC_FAILED",
+    code =
+      "SYNC_FAILED",
     status?: number,
   ) {
     super(message);
@@ -44,7 +46,8 @@ async function readResponse(
     ) as CaseSyncResponse;
   } catch {
     return {
-      success: false,
+      success:
+        false,
 
       code:
         "INVALID_RESPONSE",
@@ -53,6 +56,52 @@ async function readResponse(
         "پاسخ سرور معتبر نیست.",
     };
   }
+}
+
+function isRetryableError(
+  error:
+    unknown,
+) {
+  if (
+    error instanceof
+    CaseSyncError
+  ) {
+    if (
+      error.code ===
+        "BACKEND_NOT_CONFIGURED" ||
+      error.code ===
+        "SYNC_GATEWAY_ERROR"
+    ) {
+      return true;
+    }
+
+    if (
+      error.status ===
+        408 ||
+      error.status ===
+        425 ||
+      error.status ===
+        429
+    ) {
+      return true;
+    }
+
+    if (
+      typeof error.status ===
+        "number" &&
+      error.status >= 500
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /*
+   * fetch در قطع اینترنت معمولاً TypeError
+   * یا Abort/Network error می‌دهد.
+   */
+  return true;
 }
 
 export async function syncCase(
@@ -78,6 +127,11 @@ export async function syncCase(
   if (
     photos.length === 0
   ) {
+    await updateCaseStatus(
+      caseId,
+      "failed",
+    );
+
     throw new CaseSyncError(
       "هیچ تصویری برای ارسال وجود ندارد.",
       "NO_PHOTOS",
@@ -100,7 +154,8 @@ export async function syncCase(
       await fetch(
         "/api/sync/cases",
         {
-          method: "POST",
+          method:
+            "POST",
 
           body,
 
@@ -142,10 +197,29 @@ export async function syncCase(
 
     return result;
   } catch (error) {
-    await updateCaseStatus(
-      caseId,
-      "failed",
-    );
+    /*
+     * خطای شبکه / سرور موقت:
+     *
+     * Case باید در Queue باقی بماند.
+     */
+    if (
+      isRetryableError(
+        error,
+      )
+    ) {
+      await updateCaseStatus(
+        caseId,
+        "queued",
+      );
+    } else {
+      /*
+       * خطای دائمی مثل request نامعتبر.
+       */
+      await updateCaseStatus(
+        caseId,
+        "failed",
+      );
+    }
 
     if (
       error instanceof
@@ -158,8 +232,7 @@ export async function syncCase(
       error instanceof Error
         ? error.message
         : "ارسال Case انجام نشد.",
+      "NETWORK_ERROR",
     );
   }
 }
-
- 

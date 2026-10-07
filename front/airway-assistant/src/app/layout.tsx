@@ -14,6 +14,14 @@ import {
 } from "@/components/app-shell/operator-gate";
 
 import {
+  ConnectivityProvider,
+} from "@/components/connectivity/connectivity-provider";
+
+import {
+  AutoSyncManager,
+} from "@/components/sync/auto-sync-manager";
+
+import {
   ServiceWorkerRegister,
 } from "@/components/pwa/service-worker-register";
 
@@ -59,24 +67,29 @@ export default function RootLayout({
       <body>
         <ServiceWorkerRegister />
 
-        <OperatorGate>
-          <>
-            <main
-              className="
-                mx-auto
-                min-h-screen
-                max-w-md
-                bg-slate-50
-                pb-28
-              "
-            >
-              {children}
-            </main>
+        <ConnectivityProvider>
+          <OperatorGate>
+            <>
+              <AutoSyncManager />
 
-            <BottomNav />
-          </>
-        </OperatorGate>
+              <main
+                className="
+                  mx-auto
+                  min-h-screen
+                  max-w-md
+                  bg-slate-50
+                  pb-28
+                "
+              >
+                {children}
+              </main>
+
+              <BottomNav />
+            </>
+          </OperatorGate>
+        </ConnectivityProvider>
       </body>
     </html>
   );
 }
+
