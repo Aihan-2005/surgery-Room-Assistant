@@ -8,8 +8,19 @@ export const STUDY_PROTOCOL_VERSION =
 export const CONSENT_VERSION =
   "AIRWAY-CONSENT-v1.0";
 
+ 
 export const REQUIRED_CAPTURE_KINDS =
   [
-    "upper_lip_bite_front",
+    "front_neutral",
+    "mallampati",
+    "mouth_open",
     "lateral_neutral",
   ] as const satisfies readonly CaptureKind[];
+
+ 
+export const MIN_PHOTOS_PER_REQUIRED_POSITION =
+  2;
+
+ 
+export const MAX_PHOTOS_PER_POSITION =
+  5;

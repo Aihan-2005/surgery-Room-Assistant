@@ -34,6 +34,10 @@ import {
 } from "@/lib/config/capture-protocol";
 
 import {
+  MIN_PHOTOS_PER_REQUIRED_POSITION,
+} from "@/lib/config/study-protocol";
+
+import {
   getCase,
   getPhotosByCase,
   savePhoto,
@@ -48,9 +52,20 @@ import type {
 } from "@/lib/domain/types";
 
 interface PhotoPreview {
-  photo: StoredPhoto;
-  url: string;
+  photo:
+    StoredPhoto;
+
+  url:
+    string;
 }
+
+type PhotosByKind =
+  Partial<
+    Record<
+      CaptureKind,
+      PhotoPreview[]
+    >
+  >;
 
 export default function CapturePage() {
   const params =
@@ -64,12 +79,10 @@ export default function CapturePage() {
   const caseId =
     params.caseId;
 
-  /**
-   * تمام Object URLهایی که در این صفحه می‌سازیم
-   * اینجا track می‌شوند تا هنگام خروج از صفحه آزاد شوند.
-   */
   const previewUrlsRef =
-    useRef<Set<string>>(
+    useRef<
+      Set<string>
+    >(
       new Set(),
     );
 
@@ -77,21 +90,16 @@ export default function CapturePage() {
     airwayCase,
     setAirwayCase,
   ] =
-    useState<AirwayCase | null>(
-      null,
-    );
+    useState<
+      AirwayCase | null
+    >(null);
 
   const [
     photos,
     setPhotos,
   ] =
     useState<
-      Partial<
-        Record<
-          CaptureKind,
-          PhotoPreview
-        >
-      >
+      PhotosByKind
     >({});
 
   const [
@@ -104,9 +112,9 @@ export default function CapturePage() {
     savingKind,
     setSavingKind,
   ] =
-    useState<CaptureKind | null>(
-      null,
-    );
+    useState<
+      CaptureKind | null
+    >(null);
 
   const [
     submitting,
@@ -118,16 +126,16 @@ export default function CapturePage() {
     error,
     setError,
   ] =
-    useState<string | null>(
-      null,
-    );
+    useState<
+      string | null
+    >(null);
 
-  /**
-   * ایجاد Preview URL و ثبت آن برای cleanup بعدی.
-   */
   const createPreviewUrl =
     useCallback(
-      (blob: Blob) => {
+      (
+        blob:
+          Blob,
+      ) => {
         const url =
           URL.createObjectURL(
             blob,
@@ -142,12 +150,12 @@ export default function CapturePage() {
       [],
     );
 
-  /**
-   * حذف یک Preview URL مشخص.
-   */
   const revokePreviewUrl =
     useCallback(
-      (url: string) => {
+      (
+        url:
+          string,
+      ) => {
         URL.revokeObjectURL(
           url,
         );
@@ -159,118 +167,149 @@ export default function CapturePage() {
       [],
     );
 
-  /**
-   * خواندن Case و تمام تصاویر ذخیره‌شده آن.
-   */
   const loadData =
-    useCallback(async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const [
-          loadedCase,
-          storedPhotos,
-        ] =
-          await Promise.all([
-            getCase(caseId),
-
-            getPhotosByCase(
-              caseId,
-            ),
-          ]);
-
-        if (!loadedCase) {
-          setAirwayCase(
-            null,
+    useCallback(
+      async () => {
+        try {
+          setLoading(
+            true,
           );
 
           setError(
-            "Case موردنظر پیدا نشد.",
+            null,
           );
 
-          return;
-        }
+          const [
+            loadedCase,
+            storedPhotos,
+          ] =
+            await Promise.all([
+              getCase(
+                caseId,
+              ),
 
-        setAirwayCase(
-          loadedCase,
-        );
-
-        const previews:
-          Partial<
-            Record<
-              CaptureKind,
-              PhotoPreview
-            >
-          > = {};
-
-        for (
-          const photo of
-          storedPhotos
-        ) {
-          /**
-           * ممکن است IndexedDB شامل تصاویر مربوط به
-           * protocol قدیمی باشد.
-           *
-           * فقط تصاویر مربوط به protocol فعلی را
-           * در UI نمایش می‌دهیم.
-           */
-          const isCurrentKind =
-            CAPTURE_PROTOCOL.some(
-              (step) =>
-                step.kind ===
-                photo.kind,
-            );
+              getPhotosByCase(
+                caseId,
+              ),
+            ]);
 
           if (
-            !isCurrentKind
+            !loadedCase
           ) {
-            continue;
+            setAirwayCase(
+              null,
+            );
+
+            setError(
+              "Case موردنظر پیدا نشد.",
+            );
+
+            return;
           }
 
-          previews[
-            photo.kind
-          ] = {
-            photo,
+          setAirwayCase(
+            loadedCase,
+          );
 
-            url:
-              createPreviewUrl(
-                photo.blob,
-              ),
-          };
+          const previews:
+            PhotosByKind =
+            {};
+
+          for (
+            const photo of
+            storedPhotos
+          ) {
+            const currentProtocol =
+              CAPTURE_PROTOCOL.some(
+                (
+                  step,
+                ) =>
+                  step.kind ===
+                  photo.kind,
+              );
+
+            if (
+              !currentProtocol
+            ) {
+              continue;
+            }
+
+            const preview:
+              PhotoPreview = {
+              photo,
+
+              url:
+                createPreviewUrl(
+                  photo.blob,
+                ),
+            };
+
+            previews[
+              photo.kind
+            ] = [
+              ...(previews[
+                photo.kind
+              ] ?? []),
+
+              preview,
+            ];
+          }
+
+          for (
+            const kind of
+            Object.keys(
+              previews,
+            ) as
+              CaptureKind[]
+          ) {
+            previews[
+              kind
+            ]?.sort(
+              (
+                a,
+                b,
+              ) =>
+                new Date(
+                  a.photo.createdAt,
+                ).getTime() -
+                new Date(
+                  b.photo.createdAt,
+                ).getTime(),
+            );
+          }
+
+          setPhotos(
+            previews,
+          );
+        } catch (
+          loadError
+        ) {
+          console.error(
+            "Failed to load capture data:",
+            loadError,
+          );
+
+          setError(
+            "خواندن اطلاعات Case انجام نشد.",
+          );
+        } finally {
+          setLoading(
+            false,
+          );
         }
-
-        setPhotos(
-          previews,
-        );
-      } catch (error) {
-        console.error(
-          "Failed to load capture data:",
-          error,
-        );
-
-        setError(
-          "خواندن اطلاعات Case انجام نشد.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, [
-      caseId,
-      createPreviewUrl,
-    ]);
+      },
+      [
+        caseId,
+        createPreviewUrl,
+      ],
+    );
 
   useEffect(() => {
     void loadData();
-  }, [loadData]);
+  }, [
+    loadData,
+  ]);
 
-  /**
-   * Cleanup تمام URLهای ساخته‌شده فقط هنگام
-   * unmount شدن خود صفحه.
-   *
-   * این بهتر از dependency روی photos است،
-   * چون در آن حالت ممکن بود preview فعلی زودتر revoke شود.
-   */
   useEffect(() => {
     return () => {
       for (
@@ -286,63 +325,94 @@ export default function CapturePage() {
     };
   }, []);
 
-  /**
-   * پوزیشن‌هایی که الزاماً باید عکس داشته باشند.
-   *
-   * تعداد این‌ها hard-code نشده و مستقیماً
-   * از Capture Protocol می‌آید.
-   */
   const requiredSteps =
     useMemo(
       () =>
         CAPTURE_PROTOCOL.filter(
-          (step) =>
+          (
+            step,
+          ) =>
             step.required,
         ),
       [],
     );
 
-  const completedRequired =
-    useMemo(() => {
-      return requiredSteps.filter(
-        (step) =>
-          Boolean(
-            photos[
-              step.kind
-            ],
-          ),
-      ).length;
-    }, [
-      photos,
-      requiredSteps,
-    ]);
+  const requiredPhotoTotal =
+    requiredSteps.length *
+    MIN_PHOTOS_PER_REQUIRED_POSITION;
 
-  const requiredCount =
-    requiredSteps.length;
+  const completedPhotoTotal =
+    useMemo(
+      () =>
+        requiredSteps.reduce(
+          (
+            total,
+            step,
+          ) => {
+            const count =
+              photos[
+                step.kind
+              ]?.length ??
+              0;
+
+            return (
+              total +
+              Math.min(
+                count,
+                MIN_PHOTOS_PER_REQUIRED_POSITION,
+              )
+            );
+          },
+          0,
+        ),
+      [
+        photos,
+        requiredSteps,
+      ],
+    );
 
   const isComplete =
-    completedRequired ===
-    requiredCount;
+    requiredSteps.every(
+      (
+        step,
+      ) =>
+        (
+          photos[
+            step.kind
+          ]?.length ??
+          0
+        ) >=
+        MIN_PHOTOS_PER_REQUIRED_POSITION,
+    );
 
-  /**
-   * دریافت PreparedImage از GuidedCamera.
-   *
-   * PreparedImage شامل:
-   *
-   * file
-   * source
-   * qc
-   *
-   * است و دیگر File خام به Database فرستاده نمی‌شود.
-   */
+  const remoteLocked =
+    airwayCase?.syncStatus ===
+      "synced";
+
   async function handlePhoto(
-    kind: CaptureKind,
-    image: PreparedImage,
+    kind:
+      CaptureKind,
+    image:
+      PreparedImage,
+    replacePhotoId?:
+      string,
   ) {
-    setError(null);
+    if (
+      remoteLocked
+    ) {
+      setError(
+        "این Case قبلاً با موفقیت به سرور ارسال شده و دیگر قابل تغییر نیست.",
+      );
+
+      return;
+    }
 
     setSavingKind(
       kind,
+    );
+
+    setError(
+      null,
     );
 
     try {
@@ -351,17 +421,8 @@ export default function CapturePage() {
           caseId,
           kind,
           image,
+          replacePhotoId,
         );
-
-      /**
-       * اگر Case قبلاً وارد Queue شده باشد
-       * و یکی از عکس‌ها تغییر کند،
-       * Case دیگر آماده ارسال قبلی محسوب نمی‌شود.
-       */
-      await updateCaseStatus(
-        caseId,
-        "draft",
-      );
 
       const url =
         createPreviewUrl(
@@ -369,32 +430,90 @@ export default function CapturePage() {
         );
 
       setPhotos(
-        (current) => {
-          const old =
-            current[kind];
+        (
+          current,
+        ) => {
+          const currentList =
+            current[
+              kind
+            ] ?? [];
 
-          if (old?.url) {
+          const nextList =
+            replacePhotoId
+              ? currentList.filter(
+                  (
+                    item,
+                  ) =>
+                    item.photo.id !==
+                    replacePhotoId,
+                )
+              : [
+                  ...currentList,
+                ];
+
+          const replaced =
+            currentList.find(
+              (
+                item,
+              ) =>
+                item.photo.id ===
+                replacePhotoId,
+            );
+
+          if (
+            replaced
+          ) {
             revokePreviewUrl(
-              old.url,
+              replaced.url,
             );
           }
 
           return {
             ...current,
 
-            [kind]: {
-              photo:
-                storedPhoto,
+            [kind]: [
+              ...nextList,
 
-              url,
-            },
+              {
+                photo:
+                  storedPhoto,
+
+                url,
+              },
+            ].sort(
+              (
+                a,
+                b,
+              ) =>
+                new Date(
+                  a.photo.createdAt,
+                ).getTime() -
+                new Date(
+                  b.photo.createdAt,
+                ).getTime(),
+            ),
           };
         },
       );
-    } catch (error) {
+
+      const updatedCase =
+        await getCase(
+          caseId,
+        );
+
+      if (
+        updatedCase
+      ) {
+        setAirwayCase(
+          updatedCase,
+        );
+      }
+    } catch (
+      saveError
+    ) {
       console.error(
         "Failed to save photo:",
-        error,
+        saveError,
       );
 
       setError(
@@ -407,13 +526,12 @@ export default function CapturePage() {
     }
   }
 
-  /**
-   * تکمیل مرحله Capture.
-   */
   async function handleReady() {
-    if (!isComplete) {
+    if (
+      !isComplete
+    ) {
       setError(
-        "ابتدا تمام پوزیشن‌های الزامی را ثبت کنید.",
+        `برای هر پوزیشن حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
       );
 
       return;
@@ -424,7 +542,9 @@ export default function CapturePage() {
         true,
       );
 
-      setError(null);
+      setError(
+        null,
+      );
 
       await updateCaseStatus(
         caseId,
@@ -434,10 +554,12 @@ export default function CapturePage() {
       router.push(
         "/queue",
       );
-    } catch (error) {
+    } catch (
+      readyError
+    ) {
       console.error(
         "Failed to queue case:",
-        error,
+        readyError,
       );
 
       setError(
@@ -450,7 +572,9 @@ export default function CapturePage() {
     }
   }
 
-  if (loading) {
+  if (
+    loading
+  ) {
     return (
       <div
         className="
@@ -471,7 +595,9 @@ export default function CapturePage() {
     );
   }
 
-  if (!airwayCase) {
+  if (
+    !airwayCase
+  ) {
     return (
       <div className="p-5">
         <div
@@ -492,10 +618,13 @@ export default function CapturePage() {
   }
 
   const progress =
-    requiredCount === 0
+    requiredPhotoTotal ===
+    0
       ? 0
-      : (completedRequired /
-          requiredCount) *
+      : (
+          completedPhotoTotal /
+          requiredPhotoTotal
+        ) *
         100;
 
   return (
@@ -506,10 +635,6 @@ export default function CapturePage() {
         pt-5
       "
     >
-      {/* ------------------------------------------------ */}
-      {/* Header */}
-      {/* ------------------------------------------------ */}
-
       <header>
         <div
           className="
@@ -535,8 +660,6 @@ export default function CapturePage() {
               border-slate-200
               bg-white
               text-slate-700
-              transition
-              active:scale-95
             "
           >
             <ArrowRight
@@ -577,10 +700,10 @@ export default function CapturePage() {
               text-slate-500
             "
           >
-            برای هر پوزیشن یک تصویر
-            استاندارد ثبت کنید. کیفیت
-            فنی تصویر هنگام
-            تصویربرداری بررسی می‌شود.
+            برای هر پوزیشن حداقل دو
+            تصویر استاندارد ثبت کنید.
+            تصاویر ابتدا روی دستگاه
+            ذخیره می‌شوند.
           </p>
 
           <p
@@ -590,7 +713,7 @@ export default function CapturePage() {
               text-slate-400
             "
           >
-            Case:{" "}
+            بیمار:{" "}
             <span
               className="
                 font-bold
@@ -598,16 +721,14 @@ export default function CapturePage() {
               "
             >
               {
-                airwayCase.caseCode
+                airwayCase
+                  .clinical
+                  .fullName
               }
             </span>
           </p>
         </div>
       </header>
-
-      {/* ------------------------------------------------ */}
-      {/* Capture progress */}
-      {/* ------------------------------------------------ */}
 
       <section
         className="
@@ -625,7 +746,6 @@ export default function CapturePage() {
             flex
             items-center
             justify-between
-            gap-4
           "
         >
           <div
@@ -640,30 +760,15 @@ export default function CapturePage() {
               className="text-sky-700"
             />
 
-            <div>
-              <p
-                className="
-                  text-sm
-                  font-bold
-                  text-slate-900
-                "
-              >
-                پوزیشن‌های الزامی
-              </p>
-
-              <p
-                className="
-                  mt-0.5
-                  text-[11px]
-                  text-slate-400
-                "
-              >
-                {
-                  CAPTURE_PROTOCOL.length
-                }{" "}
-                پوزیشن تعریف شده
-              </p>
-            </div>
+            <p
+              className="
+                text-sm
+                font-bold
+                text-slate-900
+              "
+            >
+              تصاویر الزامی
+            </p>
           </div>
 
           <span
@@ -673,9 +778,13 @@ export default function CapturePage() {
               text-sky-700
             "
           >
-            {completedRequired}
+            {
+              completedPhotoTotal
+            }
             {" / "}
-            {requiredCount}
+            {
+              requiredPhotoTotal
+            }
           </span>
         </div>
 
@@ -694,10 +803,10 @@ export default function CapturePage() {
               rounded-full
               bg-sky-600
               transition-all
-              duration-300
             "
             style={{
-              width: `${progress}%`,
+              width:
+                `${progress}%`,
             }}
           />
         </div>
@@ -714,7 +823,6 @@ export default function CapturePage() {
               px-3
               py-2.5
               text-xs
-              font-medium
               text-emerald-700
             "
           >
@@ -722,15 +830,11 @@ export default function CapturePage() {
               size={17}
             />
 
-            تمام تصاویر الزامی ثبت
-            شده‌اند.
+            تصاویر لازم برای Backend
+            کامل شده‌اند.
           </div>
         )}
       </section>
-
-      {/* ------------------------------------------------ */}
-      {/* Capture positions */}
-      {/* ------------------------------------------------ */}
 
       <div
         className="
@@ -747,39 +851,54 @@ export default function CapturePage() {
               key={
                 step.kind
               }
-              step={step}
+              step={
+                step
+              }
               positionIndex={
-                index + 1
+                index +
+                1
               }
               totalPositions={
                 CAPTURE_PROTOCOL.length
               }
-              photoUrl={
+              requiredPhotoCount={
+                MIN_PHOTOS_PER_REQUIRED_POSITION
+              }
+              photos={(
                 photos[
                   step.kind
-                ]?.url
-              }
+                ] ?? []
+              ).map(
+                (
+                  item,
+                ) => ({
+                  id:
+                    item.photo.id,
+
+                  url:
+                    item.url,
+                }),
+              )}
               disabled={
                 savingKind !==
                   null ||
-                submitting
+                submitting ||
+                remoteLocked
               }
               onPhotoSelected={(
                 image,
+                replaceId,
               ) =>
                 handlePhoto(
                   step.kind,
                   image,
+                  replaceId,
                 )
               }
             />
           ),
         )}
       </div>
-
-      {/* ------------------------------------------------ */}
-      {/* Saving state */}
-      {/* ------------------------------------------------ */}
 
       {savingKind && (
         <div
@@ -804,10 +923,6 @@ export default function CapturePage() {
           دستگاه...
         </div>
       )}
-
-      {/* ------------------------------------------------ */}
-      {/* Offline info */}
-      {/* ------------------------------------------------ */}
 
       <div
         className="
@@ -835,17 +950,13 @@ export default function CapturePage() {
             text-amber-800
           "
         >
-          تمام تصاویر ابتدا به‌صورت
-          محلی روی دستگاه ذخیره
-          می‌شوند. برای تصویربرداری
-          نیازی به اتصال لحظه‌ای به
-          اینترنت نیست.
+          حتی در حالت آفلاین تمام
+          تصاویر داخل IndexedDB ذخیره
+          می‌شوند. بعد از مناسب‌شدن
+          اتصال، Case از صف ارسال به
+          Backend منتقل خواهد شد.
         </p>
       </div>
-
-      {/* ------------------------------------------------ */}
-      {/* Error */}
-      {/* ------------------------------------------------ */}
 
       {error && (
         <div
@@ -864,10 +975,6 @@ export default function CapturePage() {
         </div>
       )}
 
-      {/* ------------------------------------------------ */}
-      {/* Complete */}
-      {/* ------------------------------------------------ */}
-
       <button
         type="button"
         onClick={
@@ -876,7 +983,9 @@ export default function CapturePage() {
         disabled={
           !isComplete ||
           submitting ||
-          savingKind !== null
+          savingKind !==
+            null ||
+          remoteLocked
         }
         className="
           mt-5
@@ -891,11 +1000,7 @@ export default function CapturePage() {
           px-5
           font-bold
           text-white
-          transition
-          hover:bg-emerald-700
-          disabled:cursor-not-allowed
           disabled:bg-slate-300
-          active:scale-[0.99]
         "
       >
         {submitting ? (
@@ -909,9 +1014,11 @@ export default function CapturePage() {
           />
         )}
 
-        {submitting
-          ? "در حال ذخیره..."
-          : "تکمیل ثبت تصاویر"}
+        {remoteLocked
+          ? "ارسال شده به سرور"
+          : submitting
+            ? "در حال قرار دادن در صف..."
+            : "تکمیل تصاویر و ارسال"}
       </button>
     </div>
   );

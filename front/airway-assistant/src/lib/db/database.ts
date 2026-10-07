@@ -6,6 +6,7 @@ import {
 
 import {
   CONSENT_VERSION,
+  MIN_PHOTOS_PER_REQUIRED_POSITION,
   REQUIRED_CAPTURE_KINDS,
   STUDY_PROTOCOL_VERSION,
 } from "@/lib/config/study-protocol";
@@ -40,7 +41,8 @@ interface AirwayAssistantDatabase
     value: AirwayCase;
 
     indexes: {
-      "by-created-at": string;
+      "by-created-at":
+        string;
 
       "by-sync-status":
         SyncStatus;
@@ -48,7 +50,8 @@ interface AirwayAssistantDatabase
       "by-study-status":
         StudyStatus;
 
-      "by-case-code": string;
+      "by-case-code":
+        string;
     };
   };
 
@@ -58,7 +61,8 @@ interface AirwayAssistantDatabase
     value: StoredPhoto;
 
     indexes: {
-      "by-case-id": string;
+      "by-case-id":
+        string;
     };
   };
 
@@ -69,19 +73,23 @@ interface AirwayAssistantDatabase
       IntubationOutcome;
 
     indexes: {
-      "by-finalized-at": string;
+      "by-finalized-at":
+        string;
     };
   };
 
   audit: {
     key: string;
 
-    value: AuditEntry;
+    value:
+      AuditEntry;
 
     indexes: {
-      "by-case-id": string;
+      "by-case-id":
+        string;
 
-      "by-created-at": string;
+      "by-created-at":
+        string;
     };
   };
 }
@@ -205,19 +213,10 @@ function normalizeFullName(
 function createCaseCode(
   id: string,
 ) {
-  const shortId =
-    id
-      .replace(
-        /-/g,
-        "",
-      )
-      .slice(
-        0,
-        8,
-      )
-      .toUpperCase();
-
-  return `CASE-${shortId}`;
+  return `CASE-${id
+    .replace(/-/g, "")
+    .slice(0, 8)
+    .toUpperCase()}`;
 }
 
 function validateNewCase(
@@ -246,7 +245,7 @@ function validateNewCase(
 
   if (
     ageYears ===
-      undefined
+    undefined
   ) {
     throw new Error(
       "AGE_REQUIRED",
@@ -275,7 +274,7 @@ function validateNewCase(
 
   if (
     heightCm ===
-      undefined
+    undefined
   ) {
     throw new Error(
       "HEIGHT_REQUIRED",
@@ -286,7 +285,7 @@ function validateNewCase(
     !Number.isFinite(
       heightCm,
     ) ||
-    heightCm <= 0 ||
+    heightCm < 30 ||
     heightCm > 250
   ) {
     throw new Error(
@@ -296,7 +295,7 @@ function validateNewCase(
 
   if (
     weightKg ===
-      undefined
+    undefined
   ) {
     throw new Error(
       "WEIGHT_REQUIRED",
@@ -307,7 +306,7 @@ function validateNewCase(
     !Number.isFinite(
       weightKg,
     ) ||
-    weightKg <= 0 ||
+    weightKg < 1 ||
     weightKg > 500
   ) {
     throw new Error(
@@ -331,6 +330,21 @@ function validateNewCase(
     weightKg,
     headRotationStatus,
   };
+}
+
+function requiredPhotosCaptured(
+  photos:
+    StoredPhoto[],
+) {
+  return REQUIRED_CAPTURE_KINDS.every(
+    (kind) =>
+      photos.filter(
+        (photo) =>
+          photo.kind ===
+          kind,
+      ).length >=
+      MIN_PHOTOS_PER_REQUIRED_POSITION,
+  );
 }
 
 function getDatabase() {
@@ -538,10 +552,7 @@ function getDatabase() {
                       current.notes,
 
                     studyStatus:
-                      current.syncStatus ===
-                      "queued"
-                        ? "preop_ready"
-                        : "preop_draft",
+                      "preop_draft",
 
                     syncStatus:
                       current.syncStatus ??
@@ -643,9 +654,6 @@ export async function createCase(
     headRotationStatus:
       validated.headRotationStatus,
 
-    /*
-     * از UI جدید حذف شده‌اند.
-     */
     neckRotationDegrees:
       undefined,
 
@@ -684,9 +692,6 @@ export async function createCase(
 
     clinical,
 
-    /*
-     * Legacy compatibility.
-     */
     heightCm:
       clinical.heightCm,
 
@@ -799,6 +804,8 @@ export async function savePhoto(
     CaptureKind,
   prepared:
     PreparedImage,
+  replacePhotoId?:
+    string,
 ): Promise<StoredPhoto> {
   const database =
     await getDatabase();
@@ -842,26 +849,34 @@ export async function savePhoto(
     );
   }
 
-  const currentPhotos =
-    await photoStore
-      .index(
-        "by-case-id",
-      )
-      .getAll(
-        caseId,
+  if (
+    airwayCase.syncStatus ===
+    "synced"
+  ) {
+    throw new Error(
+      "REMOTE_CASE_ALREADY_SYNCED",
+    );
+  }
+
+  if (
+    replacePhotoId
+  ) {
+    const oldPhoto =
+      await photoStore.get(
+        replacePhotoId,
       );
 
-  const oldPhoto =
-    currentPhotos.find(
-      (photo) =>
-        photo.kind ===
-        kind,
-    );
-
-  if (oldPhoto) {
-    await photoStore.delete(
-      oldPhoto.id,
-    );
+    if (
+      oldPhoto &&
+      oldPhoto.caseId ===
+        caseId &&
+      oldPhoto.kind ===
+        kind
+    ) {
+      await photoStore.delete(
+        replacePhotoId,
+      );
+    }
   }
 
   const now =
@@ -902,34 +917,18 @@ export async function savePhoto(
   );
 
   const updatedPhotos =
-    oldPhoto
-      ? currentPhotos
-          .filter(
-            (item) =>
-              item.id !==
-              oldPhoto.id,
-          )
-          .concat(
-            photo,
-          )
-      : currentPhotos.concat(
-          photo,
-        );
-
-  const allRequiredCaptured =
-    REQUIRED_CAPTURE_KINDS.every(
-      (
-        requiredKind,
-      ) =>
-        updatedPhotos.some(
-          (item) =>
-            item.kind ===
-            requiredKind,
-        ),
-    );
+    await photoStore
+      .index(
+        "by-case-id",
+      )
+      .getAll(
+        caseId,
+      );
 
   airwayCase.studyStatus =
-    allRequiredCaptured
+    requiredPhotosCaptured(
+      updatedPhotos,
+    )
       ? "preop_ready"
       : "preop_draft";
 
@@ -956,7 +955,7 @@ export async function savePhoto(
       createAuditEntry(
         caseId,
         "photo_saved",
-        `${kind};qc=${String(
+        `${kind};photoId=${photo.id};qc=${String(
           qualityStatus,
         )};source=${prepared.source}`,
       ),
@@ -1021,12 +1020,34 @@ export async function deletePhoto(
     );
   }
 
+  if (
+    airwayCase.syncStatus ===
+    "synced"
+  ) {
+    throw new Error(
+      "REMOTE_CASE_ALREADY_SYNCED",
+    );
+  }
+
   await photoStore.delete(
     photoId,
   );
 
+  const remaining =
+    await photoStore
+      .index(
+        "by-case-id",
+      )
+      .getAll(
+        photo.caseId,
+      );
+
   airwayCase.studyStatus =
-    "preop_draft";
+    requiredPhotosCaptured(
+      remaining,
+    )
+      ? "preop_ready"
+      : "preop_draft";
 
   airwayCase.syncStatus =
     "draft";
@@ -1046,7 +1067,7 @@ export async function deletePhoto(
       createAuditEntry(
         photo.caseId,
         "photo_deleted",
-        photo.kind,
+        `${photo.kind};photoId=${photo.id}`,
       ),
     );
 
@@ -1085,12 +1106,6 @@ export async function finalizePreop(
     );
   }
 
-  if (
-    airwayCase.preopLockedAt
-  ) {
-    return airwayCase;
-  }
-
   const photos =
     await transaction
       .objectStore(
@@ -1103,24 +1118,23 @@ export async function finalizePreop(
         caseId,
       );
 
-  const missingKinds =
+  const incompleteKinds =
     REQUIRED_CAPTURE_KINDS.filter(
-      (
-        requiredKind,
-      ) =>
-        !photos.some(
+      (kind) =>
+        photos.filter(
           (photo) =>
             photo.kind ===
-            requiredKind,
-        ),
+            kind,
+        ).length <
+        MIN_PHOTOS_PER_REQUIRED_POSITION,
     );
 
   if (
-    missingKinds.length >
+    incompleteKinds.length >
     0
   ) {
     throw new Error(
-      `MISSING_IMAGES:${missingKinds.join(
+      `MISSING_IMAGES:${incompleteKinds.join(
         ",",
       )}`,
     );
@@ -1130,10 +1144,7 @@ export async function finalizePreop(
     new Date().toISOString();
 
   airwayCase.studyStatus =
-    "awaiting_outcome";
-
-  airwayCase.preopLockedAt =
-    now;
+    "preop_ready";
 
   airwayCase.updatedAt =
     now;
@@ -1181,15 +1192,14 @@ export async function finalizeOutcome(
     );
   }
 
-  const lowestSpO2 =
-    input.lowestSpO2Percent;
-
   if (
-    lowestSpO2 !==
+    input.lowestSpO2Percent !==
       undefined &&
     (
-      lowestSpO2 < 0 ||
-      lowestSpO2 > 100
+      input.lowestSpO2Percent <
+        0 ||
+      input.lowestSpO2Percent >
+        100
     )
   ) {
     throw new Error(
@@ -1226,15 +1236,6 @@ export async function finalizeOutcome(
     );
   }
 
-  if (
-    airwayCase.studyStatus !==
-    "awaiting_outcome"
-  ) {
-    throw new Error(
-      "PREOP_NOT_FINALIZED",
-    );
-  }
-
   const now =
     new Date().toISOString();
 
@@ -1258,9 +1259,6 @@ export async function finalizeOutcome(
 
   airwayCase.studyStatus =
     "outcome_complete";
-
-  airwayCase.syncStatus =
-    "queued";
 
   airwayCase.outcomeCompletedAt =
     now;
@@ -1364,17 +1362,10 @@ export async function getQueuedCases() {
   const database =
     await getDatabase();
 
-  const cases =
-    await database.getAllFromIndex(
-      "cases",
-      "by-sync-status",
-      "queued",
-    );
-
-  return cases.filter(
-    (airwayCase) =>
-      airwayCase.studyStatus ===
-      "outcome_complete",
+  return database.getAllFromIndex(
+    "cases",
+    "by-sync-status",
+    "queued",
   );
 }
 

@@ -22,17 +22,33 @@ import type {
   PreparedImage,
 } from "@/lib/domain/types";
 
+interface PhotoSlot {
+  id: string;
+
+  url: string;
+}
+
 interface PhotoCardProps {
-  step: CaptureStep;
+  step:
+    CaptureStep;
 
-  positionIndex: number;
+  positionIndex:
+    number;
 
-  totalPositions: number;
+  totalPositions:
+    number;
 
-  photoUrl?: string;
+  photos:
+    PhotoSlot[];
+
+  requiredPhotoCount:
+    number;
 
   onPhotoSelected: (
-    image: PreparedImage,
+    image:
+      PreparedImage,
+    replacePhotoId?:
+      string,
   ) => Promise<void>;
 
   disabled?: boolean;
@@ -42,14 +58,41 @@ export function PhotoCard({
   step,
   positionIndex,
   totalPositions,
-  photoUrl,
+  photos,
+  requiredPhotoCount,
   onPhotoSelected,
   disabled = false,
 }: PhotoCardProps) {
   const [
     cameraOpen,
     setCameraOpen,
-  ] = useState(false);
+  ] =
+    useState(false);
+
+  const [
+    replacePhotoId,
+    setReplacePhotoId,
+  ] =
+    useState<
+      string | undefined
+    >(undefined);
+
+  function openCamera(
+    photoId?:
+      string,
+  ) {
+    setReplacePhotoId(
+      photoId,
+    );
+
+    setCameraOpen(
+      true,
+    );
+  }
+
+  const complete =
+    photos.length >=
+    requiredPhotoCount;
 
   return (
     <>
@@ -101,21 +144,21 @@ export function PhotoCard({
                   {step.title}
                 </p>
 
-                {step.required && (
-                  <span
-                    className="
-                      rounded-full
-                      bg-red-50
-                      px-2
-                      py-1
-                      text-[10px]
-                      font-bold
-                      text-red-600
-                    "
-                  >
-                    الزامی
-                  </span>
-                )}
+                <span
+                  className="
+                    rounded-full
+                    bg-red-50
+                    px-2
+                    py-1
+                    text-[10px]
+                    font-bold
+                    text-red-600
+                  "
+                >
+                  {requiredPhotoCount}
+                  {" "}
+                  عکس الزامی
+                </span>
               </div>
 
               <p className="mt-2 text-xs leading-6 text-slate-500">
@@ -131,158 +174,224 @@ export function PhotoCard({
               </p>
             </div>
 
-            {photoUrl && (
+            {complete && (
               <CheckCircle2
                 size={24}
-                className="shrink-0 text-emerald-600"
+                className="
+                  shrink-0
+                  text-emerald-600
+                "
               />
             )}
           </div>
 
-          {!photoUrl && (
-            <div className="mt-4 rounded-2xl bg-slate-50 p-3">
-              <p className="text-xs font-bold text-slate-700">
-                راهنمای این پوزیشن
-              </p>
+          <div className="mt-4 rounded-2xl bg-slate-50 p-3">
+            <p className="text-xs font-bold text-slate-700">
+              راهنمای این پوزیشن
+            </p>
 
-              <ul className="mt-2 space-y-1 pr-4 text-xs leading-6 text-slate-500">
-                {step.instructions.map(
-                  (
-                    instruction,
-                  ) => (
-                    <li
-                      key={
-                        instruction
-                      }
-                      className="list-disc"
-                    >
-                      {
-                        instruction
-                      }
-                    </li>
-                  ),
-                )}
-              </ul>
-            </div>
+            <ul className="mt-2 space-y-1 pr-4 text-xs leading-6 text-slate-500">
+              {step.instructions.map(
+                (
+                  instruction,
+                ) => (
+                  <li
+                    key={
+                      instruction
+                    }
+                    className="list-disc"
+                  >
+                    {
+                      instruction
+                    }
+                  </li>
+                ),
+              )}
+            </ul>
+          </div>
+        </div>
+
+        <div
+          className="
+            grid
+            grid-cols-2
+            gap-2
+            px-4
+          "
+        >
+          {Array.from({
+            length:
+              requiredPhotoCount,
+          }).map(
+            (
+              _,
+              index,
+            ) => {
+              const photo =
+                photos[index];
+
+              return (
+                <div
+                  key={
+                    photo?.id ??
+                    `slot-${index}`
+                  }
+                  className="
+                    overflow-hidden
+                    rounded-2xl
+                    border
+                    border-slate-200
+                    bg-slate-100
+                  "
+                >
+                  <div
+                    className="
+                      relative
+                      aspect-[4/3]
+                    "
+                  >
+                    {photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={
+                          photo.url
+                        }
+                        alt={`${step.title} - عکس ${
+                          index +
+                          1
+                        }`}
+                        className="
+                          h-full
+                          w-full
+                          object-cover
+                        "
+                      />
+                    ) : (
+                      <div
+                        className="
+                          flex
+                          h-full
+                          flex-col
+                          items-center
+                          justify-center
+                          gap-2
+                          text-slate-400
+                        "
+                      >
+                        <Camera
+                          size={24}
+                        />
+
+                        <span className="text-xs">
+                          عکس{" "}
+                          {index +
+                            1}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={
+                      disabled
+                    }
+                    onClick={() =>
+                      openCamera(
+                        photo?.id,
+                      )
+                    }
+                    className="
+                      flex
+                      min-h-11
+                      w-full
+                      items-center
+                      justify-center
+                      gap-1.5
+                      border-t
+                      border-slate-200
+                      bg-white
+                      px-2
+                      text-xs
+                      font-bold
+                      text-sky-700
+                      disabled:opacity-50
+                    "
+                  >
+                    {photo ? (
+                      <>
+                        <ImagePlus
+                          size={16}
+                        />
+
+                        گرفتن مجدد
+                      </>
+                    ) : (
+                      <>
+                        <Camera
+                          size={16}
+                        />
+
+                        ثبت عکس
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            },
           )}
         </div>
 
         <div
           className="
-            relative
-            aspect-[4/3]
-            overflow-hidden
-            bg-slate-100
+            p-4
+            text-center
+            text-xs
+            font-medium
+            text-slate-500
           "
         >
-          {photoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={photoUrl}
-              alt={step.title}
-              className="
-                h-full
-                w-full
-                object-cover
-              "
-            />
-          ) : (
-            <div
-              className="
-                flex
-                h-full
-                flex-col
-                items-center
-                justify-center
-                gap-3
-                text-slate-400
-              "
-            >
-              <div
-                className="
-                  flex
-                  size-16
-                  items-center
-                  justify-center
-                  rounded-full
-                  bg-white
-                  shadow-sm
-                "
-              >
-                <Camera
-                  size={30}
-                />
-              </div>
-
-              <p className="text-sm">
-                هنوز تصویری ثبت نشده
-              </p>
-            </div>
+          {Math.min(
+            photos.length,
+            requiredPhotoCount,
           )}
-        </div>
-
-        <div className="p-4">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() =>
-              setCameraOpen(
-                true,
-              )
-            }
-            className={`
-              flex
-              min-h-13
-              w-full
-              items-center
-              justify-center
-              gap-2
-              rounded-2xl
-              border
-              px-4
-              text-sm
-              font-bold
-              transition
-              disabled:opacity-50
-              ${
-                photoUrl
-                  ? "border-slate-200 bg-white text-slate-700"
-                  : "border-sky-700 bg-sky-700 text-white"
-              }
-            `}
-          >
-            {photoUrl ? (
-              <>
-                <ImagePlus
-                  size={19}
-                />
-
-                گرفتن مجدد عکس
-              </>
-            ) : (
-              <>
-                <Camera
-                  size={19}
-                />
-
-                شروع تصویربرداری
-              </>
-            )}
-          </button>
+          {" / "}
+          {requiredPhotoCount}
+          {" "}
+          عکس ثبت شده
         </div>
       </section>
 
       {cameraOpen && (
         <GuidedCamera
-          step={step}
-          onClose={() =>
+          step={
+            step
+          }
+          onClose={() => {
             setCameraOpen(
               false,
-            )
-          }
-          onConfirm={
-            onPhotoSelected
-          }
+            );
+
+            setReplacePhotoId(
+              undefined,
+            );
+          }}
+          onConfirm={async (
+            image,
+          ) => {
+            await onPhotoSelected(
+              image,
+              replacePhotoId,
+            );
+
+            setCameraOpen(
+              false,
+            );
+
+            setReplacePhotoId(
+              undefined,
+            );
+          }}
         />
       )}
     </>

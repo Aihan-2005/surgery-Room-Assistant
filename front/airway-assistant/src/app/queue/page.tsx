@@ -553,9 +553,6 @@ export default function QueuePage() {
         </div>
       )}
 
-
-
-
       {(connectivity.mode ===
         "offline" ||
         connectivity.mode ===
@@ -626,9 +623,6 @@ export default function QueuePage() {
           </div>
         </div>
       )}
-
-
-
 
       {connectivity.mode ===
         "local-only" && (

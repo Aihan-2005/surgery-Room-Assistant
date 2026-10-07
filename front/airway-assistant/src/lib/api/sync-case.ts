@@ -12,6 +12,10 @@ import type {
   CaseSyncResponse,
 } from "@/lib/api/contracts";
 
+import {
+  getOperatorProfile,
+} from "@/lib/profile/operator-profile";
+
 export class CaseSyncError
   extends Error {
   code: string;
@@ -19,12 +23,16 @@ export class CaseSyncError
   status?: number;
 
   constructor(
-    message: string,
+    message:
+      string,
     code =
       "SYNC_FAILED",
-    status?: number,
+    status?:
+      number,
   ) {
-    super(message);
+    super(
+      message,
+    );
 
     this.name =
       "CaseSyncError";
@@ -38,7 +46,8 @@ export class CaseSyncError
 }
 
 async function readResponse(
-  response: Response,
+  response:
+    Response,
 ): Promise<CaseSyncResponse> {
   try {
     return (
@@ -63,50 +72,59 @@ function isRetryableError(
     unknown,
 ) {
   if (
-    error instanceof
-    CaseSyncError
+    !(error instanceof
+      CaseSyncError)
   ) {
-    if (
-      error.code ===
-        "BACKEND_NOT_CONFIGURED" ||
-      error.code ===
-        "SYNC_GATEWAY_ERROR"
-    ) {
-      return true;
-    }
-
-    if (
-      error.status ===
-        408 ||
-      error.status ===
-        425 ||
-      error.status ===
-        429
-    ) {
-      return true;
-    }
-
-    if (
-      typeof error.status ===
-        "number" &&
-      error.status >= 500
-    ) {
-      return true;
-    }
-
-    return false;
+    return true;
   }
 
-  /*
-   * fetch در قطع اینترنت معمولاً TypeError
-   * یا Abort/Network error می‌دهد.
-   */
-  return true;
+  if (
+    error.code ===
+      "BACKEND_NOT_CONFIGURED" ||
+    error.code ===
+      "SYNC_GATEWAY_ERROR"
+  ) {
+    return true;
+  }
+
+  if (
+    error.status ===
+      408 ||
+    error.status ===
+      425 ||
+    error.status ===
+      429
+  ) {
+    return true;
+  }
+
+  if (
+    typeof error.status ===
+      "number" &&
+    error.status >=
+      500
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export async function syncCase(
-  caseId: string,
+  caseId:
+    string,
 ): Promise<CaseSyncResponse> {
+  const operator =
+    getOperatorProfile();
+
+  if (!operator) {
+    throw new CaseSyncError(
+      "پزشک در Backend ثبت نشده است.",
+      "DEVICE_NOT_REGISTERED",
+      401,
+    );
+  }
+
   const airwayCase =
     await getCase(
       caseId,
@@ -127,11 +145,6 @@ export async function syncCase(
   if (
     photos.length === 0
   ) {
-    await updateCaseStatus(
-      caseId,
-      "failed",
-    );
-
     throw new CaseSyncError(
       "هیچ تصویری برای ارسال وجود ندارد.",
       "NO_PHOTOS",
@@ -157,6 +170,11 @@ export async function syncCase(
           method:
             "POST",
 
+          headers: {
+            "X-Device-Token":
+              operator.deviceToken,
+          },
+
           body,
 
           cache:
@@ -173,19 +191,15 @@ export async function syncCase(
       !response.ok ||
       !result.success
     ) {
-      const message =
+      throw new CaseSyncError(
         result.success
           ? "ارسال Case ناموفق بود."
-          : result.message;
+          : result.message,
 
-      const code =
         result.success
           ? "SYNC_FAILED"
-          : result.code;
+          : result.code,
 
-      throw new CaseSyncError(
-        message,
-        code,
         response.status,
       );
     }
@@ -196,12 +210,9 @@ export async function syncCase(
     );
 
     return result;
-  } catch (error) {
-    /*
-     * خطای شبکه / سرور موقت:
-     *
-     * Case باید در Queue باقی بماند.
-     */
+  } catch (
+    error
+  ) {
     if (
       isRetryableError(
         error,
@@ -212,9 +223,6 @@ export async function syncCase(
         "queued",
       );
     } else {
-      /*
-       * خطای دائمی مثل request نامعتبر.
-       */
       await updateCaseStatus(
         caseId,
         "failed",
@@ -232,7 +240,9 @@ export async function syncCase(
       error instanceof Error
         ? error.message
         : "ارسال Case انجام نشد.",
+
       "NETWORK_ERROR",
     );
   }
 }
+

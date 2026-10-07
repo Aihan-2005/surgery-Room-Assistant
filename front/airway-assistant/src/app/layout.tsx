@@ -67,29 +67,26 @@ export default function RootLayout({
       <body>
         <ServiceWorkerRegister />
 
-        <ConnectivityProvider>
-          <OperatorGate>
-            <>
-              <AutoSyncManager />
+        <OperatorGate>
+          <ConnectivityProvider>
+            <AutoSyncManager />
 
-              <main
-                className="
-                  mx-auto
-                  min-h-screen
-                  max-w-md
-                  bg-slate-50
-                  pb-28
-                "
-              >
-                {children}
-              </main>
+            <main
+              className="
+                mx-auto
+                min-h-screen
+                max-w-md
+                bg-slate-50
+                pb-28
+              "
+            >
+              {children}
+            </main>
 
-              <BottomNav />
-            </>
-          </OperatorGate>
-        </ConnectivityProvider>
+            <BottomNav />
+          </ConnectivityProvider>
+        </OperatorGate>
       </body>
     </html>
   );
 }
-

@@ -8,12 +8,17 @@ import {
 
 import {
   getAllCases,
+  getQueuedCases,
   updateCaseStatus,
 } from "@/lib/db/database";
 
 import {
   syncCase,
 } from "@/lib/api/sync-case";
+
+import {
+  checkConnectivity,
+} from "@/lib/network/connectivity";
 
 import {
   useConnectivity,
@@ -46,75 +51,53 @@ export function AutoSyncManager() {
           true;
 
         try {
-          const cases =
+          const allCases =
             await getAllCases();
 
-          /*
-           * syncing ممکن است از session قبلی
-           * باقی مانده باشد؛ دوباره queued می‌شود.
-           */
-          const interrupted =
-            cases.filter(
-              (airwayCase) =>
-                airwayCase.studyStatus ===
-                  "outcome_complete" &&
-                airwayCase.syncStatus ===
-                  "syncing",
-            );
-
+            
           for (
             const airwayCase of
-            interrupted
+            allCases
           ) {
-            await updateCaseStatus(
-              airwayCase.id,
-              "queued",
-            );
+            if (
+              airwayCase.syncStatus ===
+              "syncing"
+            ) {
+              await updateCaseStatus(
+                airwayCase.id,
+                "queued",
+              );
+            }
           }
 
-          const refreshedCases =
-            interrupted.length >
-            0
-              ? await getAllCases()
-              : cases;
-
           const queued =
-            refreshedCases
-              .filter(
-                (
-                  airwayCase,
-                ) =>
-                  airwayCase.studyStatus ===
-                    "outcome_complete" &&
-                  airwayCase.syncStatus ===
-                    "queued",
-              )
-              .sort(
-                (
-                  a,
-                  b,
-                ) =>
-                  new Date(
-                    a.updatedAt,
-                  ).getTime() -
-                  new Date(
-                    b.updatedAt,
-                  ).getTime(),
-              );
+            (
+              await getQueuedCases()
+            ).sort(
+              (
+                a,
+                b,
+              ) =>
+                new Date(
+                  a.updatedAt,
+                ).getTime() -
+                new Date(
+                  b.updatedAt,
+                ).getTime(),
+            );
 
           for (
             const airwayCase of
             queued
           ) {
-            /*
-             * قبل از هر upload دوباره وضعیت
-             * اتصال بررسی می‌شود.
-             */
-            await refresh();
+            const latest =
+              await checkConnectivity();
 
             if (
-              !navigator.onLine
+              !latest.canUpload
             ) {
+              await refresh();
+
               break;
             }
 
@@ -130,14 +113,11 @@ export function AutoSyncManager() {
                 error,
               );
 
-              /*
-               * اگر اولین مورد ارسال نشد،
-               * روی شبکه بد چند upload پشت‌سرهم
-               * انجام نمی‌دهیم.
-               */
               break;
             }
           }
+
+          await refresh();
         } finally {
           runningRef.current =
             false;
@@ -166,11 +146,10 @@ export function AutoSyncManager() {
         AUTO_SYNC_INTERVAL_MS,
       );
 
-    return () => {
+    return () =>
       window.clearInterval(
         interval,
       );
-    };
   }, [
     connectivity.canUpload,
     processQueue,

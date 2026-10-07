@@ -1,3 +1,7 @@
+import {
+  getOperatorProfile,
+} from "@/lib/profile/operator-profile";
+
 export type ConnectivityMode =
   | "checking"
   | "online"
@@ -12,7 +16,9 @@ export type ConnectivityReason =
   | "probe_failed"
   | "connection_too_slow"
   | "backend_not_configured"
-  | "backend_unreachable";
+  | "backend_unreachable"
+  | "device_not_registered"
+  | "device_unauthorized";
 
 export interface ConnectivitySnapshot {
   mode:
@@ -21,15 +27,9 @@ export interface ConnectivitySnapshot {
   reason:
     ConnectivityReason;
 
-  /**
-   * آیا در همین لحظه upload واقعی مجاز است؟
-   */
   canUpload:
     boolean;
 
-  /**
-   * آیا حداقل ارتباط با Next.js server برقرار است؟
-   */
   internetReachable:
     boolean;
 
@@ -37,6 +37,9 @@ export interface ConnectivitySnapshot {
     boolean;
 
   backendReachable:
+    boolean;
+
+  authenticated:
     boolean;
 
   probeLatencyMs?:
@@ -92,29 +95,19 @@ interface BackendHealthResponse {
   reachable?:
     boolean;
 
+  authenticated?:
+    boolean;
+
   status?:
     number;
-
-  message?:
-    string;
 }
 
 const PROBE_TIMEOUT_MS =
   4500;
 
-/**
- * اگر probe بیشتر از این زمان طول بکشد،
- * برای ارسال تصاویر اتصال را ضعیف در نظر می‌گیریم.
- */
 const WEAK_PROBE_LATENCY_MS =
   3000;
 
-/**
- * Mbps
- *
- * فقط زمانی استفاده می‌شود که browser
- * Network Information API را پشتیبانی کند.
- */
 const WEAK_DOWNLINK_MBPS =
   0.75;
 
@@ -143,7 +136,7 @@ export function getBrowserConnection():
   );
 }
 
-function isConnectionObviouslyWeak(
+function weakConnection(
   connection:
     BrowserNetworkInformation | null,
 ) {
@@ -151,13 +144,10 @@ function isConnectionObviouslyWeak(
     return false;
   }
 
-  const effectiveType =
-    connection.effectiveType;
-
   if (
-    effectiveType ===
+    connection.effectiveType ===
       "slow-2g" ||
-    effectiveType ===
+    connection.effectiveType ===
       "2g"
   ) {
     return true;
@@ -174,27 +164,23 @@ function isConnectionObviouslyWeak(
     return true;
   }
 
-  if (
+  return (
     typeof connection.rtt ===
       "number" &&
     connection.rtt >=
       WEAK_RTT_MS
-  ) {
-    return true;
-  }
-
-  return false;
+  );
 }
 
-function buildSnapshot(
-  partial:
+function snapshot(
+  value:
     Omit<
       ConnectivitySnapshot,
       "checkedAt"
     >,
 ): ConnectivitySnapshot {
   return {
-    ...partial,
+    ...value,
 
     checkedAt:
       new Date().toISOString(),
@@ -203,13 +189,28 @@ function buildSnapshot(
 
 export async function checkConnectivity():
   Promise<ConnectivitySnapshot> {
+  const connection =
+    getBrowserConnection();
+
+  const common = {
+    effectiveType:
+      connection?.effectiveType,
+
+    downlinkMbps:
+      connection?.downlink,
+
+    rttMs:
+      connection?.rtt,
+
+    saveData:
+      connection?.saveData,
+  };
+
   if (
-    typeof window ===
-      "undefined" ||
     typeof navigator ===
       "undefined"
   ) {
-    return buildSnapshot({
+    return snapshot({
       mode:
         "checking",
 
@@ -227,33 +228,18 @@ export async function checkConnectivity():
 
       backendReachable:
         false,
+
+      authenticated:
+        false,
+
+      ...common,
     });
   }
 
-  const connection =
-    getBrowserConnection();
-
-  const effectiveType =
-    connection
-      ?.effectiveType;
-
-  const downlinkMbps =
-    connection
-      ?.downlink;
-
-  const rttMs =
-    connection
-      ?.rtt;
-
-  const saveData =
-    connection
-      ?.saveData;
-
   if (
-    navigator.onLine ===
-    false
+    !navigator.onLine
   ) {
-    return buildSnapshot({
+    return snapshot({
       mode:
         "offline",
 
@@ -272,139 +258,67 @@ export async function checkConnectivity():
       backendReachable:
         false,
 
-      effectiveType,
+      authenticated:
+        false,
 
-      downlinkMbps,
-
-      rttMs,
-
-      saveData,
+      ...common,
     });
   }
+
+  const operator =
+    getOperatorProfile();
 
   const controller =
     new AbortController();
 
   const timeout =
     window.setTimeout(
-      () => {
-        controller.abort();
-      },
+      () =>
+        controller.abort(),
       PROBE_TIMEOUT_MS,
     );
 
-  const startedAt =
+  const started =
     performance.now();
 
   try {
-    /*
-     * همین endpoint موجود پروژه:
-     *
-     * GET /api/sync/cases
-     *
-     * هم دسترسی به Next server را ثابت می‌کند
-     * و هم وضعیت Backend آینده را برمی‌گرداند.
-     *
-     * Service Worker فعلی /api را cache نمی‌کند،
-     * پس پاسخ cache شده باعث Online جعلی نمی‌شود.
-     */
     const response =
       await fetch(
-        `/api/sync/cases?connectivity=${Date.now()}`,
+        `/api/sync/cases?probe=${Date.now()}`,
         {
           method:
             "GET",
+
+          headers:
+            operator
+              ? {
+                  "X-Device-Token":
+                    operator.deviceToken,
+                }
+              : undefined,
 
           cache:
             "no-store",
 
           signal:
             controller.signal,
-
-          headers: {
-            Accept:
-              "application/json",
-          },
         },
       );
 
-    const probeLatencyMs =
+    const latency =
       Math.round(
         performance.now() -
-          startedAt,
+          started,
       );
 
-    let health:
-      BackendHealthResponse =
-      {};
-
-    try {
-      health =
-        (await response.json()) as
-          BackendHealthResponse;
-    } catch {
-      health = {};
-    }
-
-    const backendConfigured =
-      health.configured ===
-      true;
-
-    const backendReachable =
-      health.reachable ===
-      true;
-
-    const weakByBrowser =
-      isConnectionObviouslyWeak(
-        connection,
-      );
-
-    const weakByProbe =
-      probeLatencyMs >=
-      WEAK_PROBE_LATENCY_MS;
+    const health =
+      (await response.json()) as
+        BackendHealthResponse;
 
     if (
-      weakByBrowser ||
-      weakByProbe
+      !health.configured
     ) {
-      return buildSnapshot({
-        mode:
-          "weak",
-
-        reason:
-          "connection_too_slow",
-
-        canUpload:
-          false,
-
-        internetReachable:
-          true,
-
-        backendConfigured,
-
-        backendReachable,
-
-        probeLatencyMs,
-
-        effectiveType,
-
-        downlinkMbps,
-
-        rttMs,
-
-        saveData,
-      });
-    }
-
-    /*
-     * Backend هنوز ساخته نشده.
-     *
-     * اینترنت داریم، اما upload واقعی نداریم.
-     */
-    if (
-      !backendConfigured
-    ) {
-      return buildSnapshot({
+      return snapshot({
         mode:
           "local-only",
 
@@ -423,26 +337,20 @@ export async function checkConnectivity():
         backendReachable:
           false,
 
-        probeLatencyMs,
+        authenticated:
+          false,
 
-        effectiveType,
+        probeLatencyMs:
+          latency,
 
-        downlinkMbps,
-
-        rttMs,
-
-        saveData,
+        ...common,
       });
     }
 
-    /*
-     * Backend configured است،
-     * اما health check آن شکست خورده.
-     */
     if (
-      !backendReachable
+      !health.reachable
     ) {
-      return buildSnapshot({
+      return snapshot({
         mode:
           "offline",
 
@@ -461,19 +369,118 @@ export async function checkConnectivity():
         backendReachable:
           false,
 
-        probeLatencyMs,
+        authenticated:
+          false,
 
-        effectiveType,
+        probeLatencyMs:
+          latency,
 
-        downlinkMbps,
-
-        rttMs,
-
-        saveData,
+        ...common,
       });
     }
 
-    return buildSnapshot({
+    if (
+      weakConnection(
+        connection,
+      ) ||
+      latency >=
+        WEAK_PROBE_LATENCY_MS
+    ) {
+      return snapshot({
+        mode:
+          "weak",
+
+        reason:
+          "connection_too_slow",
+
+        canUpload:
+          false,
+
+        internetReachable:
+          true,
+
+        backendConfigured:
+          true,
+
+        backendReachable:
+          true,
+
+        authenticated:
+          health.authenticated ===
+          true,
+
+        probeLatencyMs:
+          latency,
+
+        ...common,
+      });
+    }
+
+    if (
+      !operator
+    ) {
+      return snapshot({
+        mode:
+          "local-only",
+
+        reason:
+          "device_not_registered",
+
+        canUpload:
+          false,
+
+        internetReachable:
+          true,
+
+        backendConfigured:
+          true,
+
+        backendReachable:
+          true,
+
+        authenticated:
+          false,
+
+        probeLatencyMs:
+          latency,
+
+        ...common,
+      });
+    }
+
+    if (
+      !health.authenticated
+    ) {
+      return snapshot({
+        mode:
+          "local-only",
+
+        reason:
+          "device_unauthorized",
+
+        canUpload:
+          false,
+
+        internetReachable:
+          true,
+
+        backendConfigured:
+          true,
+
+        backendReachable:
+          true,
+
+        authenticated:
+          false,
+
+        probeLatencyMs:
+          latency,
+
+        ...common,
+      });
+    }
+
+    return snapshot({
       mode:
         "online",
 
@@ -492,18 +499,16 @@ export async function checkConnectivity():
       backendReachable:
         true,
 
-      probeLatencyMs,
+      authenticated:
+        true,
 
-      effectiveType,
+      probeLatencyMs:
+        latency,
 
-      downlinkMbps,
-
-      rttMs,
-
-      saveData,
+      ...common,
     });
   } catch {
-    return buildSnapshot({
+    return snapshot({
       mode:
         "offline",
 
@@ -517,18 +522,15 @@ export async function checkConnectivity():
         false,
 
       backendConfigured:
-        false,
+        true,
 
       backendReachable:
         false,
 
-      effectiveType,
+      authenticated:
+        false,
 
-      downlinkMbps,
-
-      rttMs,
-
-      saveData,
+      ...common,
     });
   } finally {
     window.clearTimeout(
@@ -555,6 +557,9 @@ export const INITIAL_CONNECTIVITY:
     false,
 
   backendReachable:
+    false,
+
+  authenticated:
     false,
 
   checkedAt:
