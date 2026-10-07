@@ -39,6 +39,10 @@ INSTALLED_APPS = [
     "assessments",
 ]
 
+if DEBUG:
+    INSTALLED_APPS += ["django_extensions"] 
+      
+
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # must stay first
     "django.middleware.security.SecurityMiddleware",
