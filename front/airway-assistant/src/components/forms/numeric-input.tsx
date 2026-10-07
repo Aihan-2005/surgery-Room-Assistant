@@ -22,6 +22,12 @@ interface NumericInputProps {
   unit?: string;
 
   disabled?: boolean;
+
+  required?: boolean;
+
+  invalid?: boolean;
+
+  ariaDescribedBy?: string;
 }
 
 export function NumericInput({
@@ -31,6 +37,9 @@ export function NumericInput({
   placeholder,
   unit,
   disabled = false,
+  required = false,
+  invalid = false,
+  ariaDescribedBy,
 }: NumericInputProps) {
   function handleChange(
     event:
@@ -41,7 +50,9 @@ export function NumericInput({
         event.target.value,
       );
 
-    onChange(normalized);
+    onChange(
+      normalized,
+    );
   }
 
   return (
@@ -55,14 +66,26 @@ export function NumericInput({
         autoComplete="off"
         value={value}
         disabled={disabled}
-        onChange={handleChange}
-        placeholder={placeholder}
-        className="
+        required={required}
+        aria-invalid={
+          invalid
+            ? true
+            : undefined
+        }
+        aria-describedby={
+          ariaDescribedBy
+        }
+        onChange={
+          handleChange
+        }
+        placeholder={
+          placeholder
+        }
+        className={`
           min-h-14
           w-full
           rounded-2xl
           border
-          border-slate-200
           bg-white
           px-4
           pr-4
@@ -71,14 +94,18 @@ export function NumericInput({
           text-base
           text-slate-900
           shadow-sm
+          outline-none
           transition
           placeholder:text-slate-400
-          focus:border-sky-500
           focus:ring-4
-          focus:ring-sky-100
           disabled:cursor-not-allowed
           disabled:bg-slate-100
-        "
+          ${
+            invalid
+              ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+              : "border-slate-200 focus:border-sky-500 focus:ring-sky-100"
+          }
+        `}
       />
 
       {unit && (

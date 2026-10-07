@@ -1,13 +1,9 @@
-/* -------------------------------------------------------------------------- */
-/*                                   Helpers                                  */
-/* -------------------------------------------------------------------------- */
-
 export type OpenString<T extends string> =
   | T
   | (string & {});
 
 /* -------------------------------------------------------------------------- */
-/*                               Sync / Study                                 */
+/* Sync / Study                                                               */
 /* -------------------------------------------------------------------------- */
 
 export type SyncStatus =
@@ -28,7 +24,7 @@ export type StudyStatus =
   | "excluded";
 
 /* -------------------------------------------------------------------------- */
-/*                                   Common                                   */
+/* Common                                                                     */
 /* -------------------------------------------------------------------------- */
 
 export type YesNoUnknown =
@@ -46,8 +42,28 @@ export type NeckMobility =
   | "reduced"
   | "unknown";
 
+export type HeadRotationStatus =
+  | "complete"
+  | "incomplete";
+
 /* -------------------------------------------------------------------------- */
-/*                          Airway classifications                            */
+/* Operator                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface OperatorProfile {
+  id: string;
+
+  fullName: string;
+
+  version: 1;
+
+  createdAt: string;
+
+  updatedAt: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Airway classifications                                                     */
 /* -------------------------------------------------------------------------- */
 
 export type MallampatiClass =
@@ -80,7 +96,7 @@ export type InitialAirwayDevice =
   | "unknown";
 
 /* -------------------------------------------------------------------------- */
-/*                                  Capture                                   */
+/* Capture                                                                    */
 /* -------------------------------------------------------------------------- */
 
 export type CaptureKind =
@@ -89,8 +105,8 @@ export type CaptureKind =
   | "mouth_open"
   | "lateral_neutral"
 
-  /*
-   * Legacy protocol compatibility.
+  /**
+   * Legacy compatibility.
    */
   | "upper_lip_bite_front";
 
@@ -103,7 +119,7 @@ export type CaptureSource =
   | "unknown";
 
 /* -------------------------------------------------------------------------- */
-/*                              Image Quality                                 */
+/* Image Quality                                                              */
 /* -------------------------------------------------------------------------- */
 
 export type ImageQualityFlag =
@@ -111,6 +127,7 @@ export type ImageQualityFlag =
     | "too_dark"
     | "too_bright"
     | "blurry"
+    | "possibly_blurry"
     | "low_resolution"
     | "bad_aspect_ratio"
     | "quality_warning"
@@ -150,7 +167,11 @@ export interface ImageQualityMetrics {
 
   meanBrightness?: number;
 
+  meanLuminance?: number;
+
   sharpness?: number;
+
+  sharpnessScore?: number;
 
   blurScore?: number;
 
@@ -174,21 +195,13 @@ export interface ImageQualityMetrics {
 
   checkedAt?: string;
 
-  /*
-   * QC ممکن است در آینده metricهای بیشتری اضافه کند.
-   */
   [key: string]: unknown;
 }
 
 /* -------------------------------------------------------------------------- */
-/*                            Prepared Image                                  */
+/* Prepared Image                                                             */
 /* -------------------------------------------------------------------------- */
 
-/**
- * قرارداد مشترک Camera -> Database
- *
- * Source of truth این type همین فایل است.
- */
 export interface PreparedImage {
   file: File;
 
@@ -198,20 +211,16 @@ export interface PreparedImage {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                          Clinical Assessment                               */
+/* Clinical Assessment                                                        */
 /* -------------------------------------------------------------------------- */
 
 export interface ClinicalAssessment {
   /**
-   * نام و نام خانوادگی در یک فیلد.
-   *
-   * اختیاری است.
+   * Optional در type برای سازگاری Caseهای قدیمی.
+   * در createCase برای Case جدید اجباری است.
    */
   fullName?: string;
 
-  /*
-   * برای سازگاری با داده‌های آزمایشی قبلی.
-   */
   firstName?: string;
 
   lastName?: string;
@@ -224,16 +233,31 @@ export interface ClinicalAssessment {
 
   weightKg?: number;
 
+  /**
+   * Legacy field.
+   */
   neckMobility: NeckMobility;
 
   /**
-   * زاویه حرکت / چرخش گردن بر حسب درجه.
+   * مقدار اصلی جدید برای ارزیابی چرخش سر.
+   */
+  headRotationStatus?:
+    HeadRotationStatus;
+
+  /**
+   * Legacy field.
    */
   neckRotationDegrees?: number;
 
-  mallampatiClass: MallampatiClass;
+  /**
+   * این دو ورودی از UI حذف شده‌اند،
+   * اما برای داده‌های قدیمی حفظ می‌شوند.
+   */
+  mallampatiClass:
+    MallampatiClass;
 
-  upperLipBiteClass: UpperLipBiteClass;
+  upperLipBiteClass:
+    UpperLipBiteClass;
 
   interincisorDistanceMm?: number;
 
@@ -245,15 +269,18 @@ export interface ClinicalAssessment {
 
   neckCircumferenceMm?: number;
 
-  retrognathia: YesNoUnknown;
+  retrognathia:
+    YesNoUnknown;
 
-  prominentUpperIncisors: YesNoUnknown;
+  prominentUpperIncisors:
+    YesNoUnknown;
 
-  priorDifficultIntubation: YesNoUnknown;
+  priorDifficultIntubation:
+    YesNoUnknown;
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  Consent                                   */
+/* Consent                                                                    */
 /* -------------------------------------------------------------------------- */
 
 export interface ConsentRecord {
@@ -265,7 +292,7 @@ export interface ConsentRecord {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  Outcome                                   */
+/* Outcome                                                                    */
 /* -------------------------------------------------------------------------- */
 
 export interface IntubationOutcome {
@@ -281,20 +308,15 @@ export interface IntubationOutcome {
   initialDevice:
     InitialAirwayDevice;
 
-  strategyEscalation:
-    boolean;
+  strategyEscalation: boolean;
 
-  bougieUsed:
-    boolean;
+  bougieUsed: boolean;
 
-  styletUsed:
-    boolean;
+  styletUsed: boolean;
 
-  videoLaryngoscopeUsed:
-    boolean;
+  videoLaryngoscopeUsed: boolean;
 
-  supraglotticRescueUsed:
-    boolean;
+  supraglotticRescueUsed: boolean;
 
   operatorExperienceYears?: number;
 
@@ -306,48 +328,53 @@ export interface IntubationOutcome {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                    Case                                    */
+/* Case                                                                       */
 /* -------------------------------------------------------------------------- */
 
 export interface AirwayCase {
+  /**
+   * شناسه اصلی و یکتای Case.
+   */
   id: string;
 
   /**
-   * فعلاً برای backward compatibility حفظ شده.
-   *
-   * اگر نام بیمار وارد شده باشد:
-   * caseCode همان نام نمایشی خواهد بود.
-   *
-   * اگر نام وارد نشده باشد:
-   * یک CASE-* خودکار ساخته می‌شود.
-   *
-   * شناسه یکتای واقعی همیشه id است.
+   * شناسه کوتاه نمایشی.
    */
   caseCode: string;
 
   protocolVersion: string;
 
-  consent: ConsentRecord;
+  /**
+   * اپراتور ایجادکننده Case.
+   * optional برای Caseهای legacy.
+   */
+  operatorId?: string;
 
-  clinical: ClinicalAssessment;
+  operatorNameSnapshot?: string;
+
+  consent:
+    ConsentRecord;
+
+  clinical:
+    ClinicalAssessment;
 
   notes?: string;
 
-  studyStatus: StudyStatus;
+  studyStatus:
+    StudyStatus;
 
-  syncStatus: SyncStatus;
+  syncStatus:
+    SyncStatus;
 
   /*
    * Legacy compatibility.
-   *
-   * cases/page.tsx فعلی هنوز این سه property
-   * را مستقیماً می‌خواند.
    */
   heightCm?: number;
 
   weightKg?: number;
 
-  neckMobility?: NeckMobility;
+  neckMobility?:
+    NeckMobility;
 
   preopLockedAt?: string;
 
@@ -361,7 +388,7 @@ export interface AirwayCase {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                   Photo                                    */
+/* Photo                                                                      */
 /* -------------------------------------------------------------------------- */
 
 export interface StoredPhoto {
@@ -369,7 +396,8 @@ export interface StoredPhoto {
 
   caseId: string;
 
-  kind: CaptureKind;
+  kind:
+    CaptureKind;
 
   blob: Blob;
 
@@ -377,16 +405,20 @@ export interface StoredPhoto {
 
   mimeType: string;
 
-  source: CaptureSource;
+  source:
+    CaptureSource;
 
-  qc: ImageQualityMetrics;
+  qc:
+    ImageQualityMetrics;
 
   createdAt: string;
 
   updatedAt?: string;
 }
 
-
+/* -------------------------------------------------------------------------- */
+/* Audit                                                                      */
+/* -------------------------------------------------------------------------- */
 
 export type AuditEvent =
   OpenString<
@@ -404,7 +436,8 @@ export interface AuditEntry {
 
   caseId: string;
 
-  event: AuditEvent;
+  event:
+    AuditEvent;
 
   details?: string;
 

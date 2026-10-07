@@ -23,15 +23,14 @@ import type {
   SyncStatus,
 } from "@/lib/domain/types";
 
+import {
+  getOperatorProfile,
+} from "@/lib/profile/operator-profile";
+
 const DATABASE_NAME =
   "airway-assistant-db";
 
-const DATABASE_VERSION =
-  2;
-
-/* -------------------------------------------------------------------------- */
-/*                                 DB Schema                                  */
-/* -------------------------------------------------------------------------- */
+const DATABASE_VERSION = 2;
 
 interface AirwayAssistantDatabase
   extends DBSchema {
@@ -41,8 +40,7 @@ interface AirwayAssistantDatabase
     value: AirwayCase;
 
     indexes: {
-      "by-created-at":
-        string;
+      "by-created-at": string;
 
       "by-sync-status":
         SyncStatus;
@@ -50,8 +48,7 @@ interface AirwayAssistantDatabase
       "by-study-status":
         StudyStatus;
 
-      "by-case-code":
-        string;
+      "by-case-code": string;
     };
   };
 
@@ -61,8 +58,7 @@ interface AirwayAssistantDatabase
     value: StoredPhoto;
 
     indexes: {
-      "by-case-id":
-        string;
+      "by-case-id": string;
     };
   };
 
@@ -73,30 +69,22 @@ interface AirwayAssistantDatabase
       IntubationOutcome;
 
     indexes: {
-      "by-finalized-at":
-        string;
+      "by-finalized-at": string;
     };
   };
 
   audit: {
     key: string;
 
-    value:
-      AuditEntry;
+    value: AuditEntry;
 
     indexes: {
-      "by-case-id":
-        string;
+      "by-case-id": string;
 
-      "by-created-at":
-        string;
+      "by-created-at": string;
     };
   };
 }
-
-/* -------------------------------------------------------------------------- */
-/*                              Legacy Schema                                 */
-/* -------------------------------------------------------------------------- */
 
 interface LegacyCase {
   id: string;
@@ -107,42 +95,27 @@ interface LegacyCase {
 
   weightKg?: number;
 
-  neckMobility?: NeckMobility;
+  neckMobility?:
+    NeckMobility;
 
   notes?: string;
 
-  syncStatus?: SyncStatus;
+  syncStatus?:
+    SyncStatus;
 
   createdAt: string;
 
   updatedAt: string;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                             Create Case Input                              */
-/* -------------------------------------------------------------------------- */
-
 export interface CreateCaseInput {
-  /**
-   * اختیاری.
-   */
-  fullName?: string;
+  fullName: string;
 
   clinical:
     ClinicalAssessment;
 
-  /**
-   * فعلاً UI این را دریافت نمی‌کند.
-   * برای compatibility باقی مانده.
-   */
-  consentAccepted?: boolean;
-
   notes?: string;
 }
-
-/* -------------------------------------------------------------------------- */
-/*                              DB singleton                                  */
-/* -------------------------------------------------------------------------- */
 
 let databasePromise:
   | Promise<
@@ -150,12 +123,9 @@ let databasePromise:
     >
   | null = null;
 
-/* -------------------------------------------------------------------------- */
-/*                            Clinical Defaults                               */
-/* -------------------------------------------------------------------------- */
-
 function unknownClinical(
-  legacy?: LegacyCase,
+  legacy?:
+    LegacyCase,
 ): ClinicalAssessment {
   return {
     fullName:
@@ -182,6 +152,9 @@ function unknownClinical(
     neckMobility:
       legacy?.neckMobility ??
       "unknown",
+
+    headRotationStatus:
+      undefined,
 
     neckRotationDegrees:
       undefined,
@@ -218,13 +191,22 @@ function unknownClinical(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/*                             Internal Case Code                             */
-/* -------------------------------------------------------------------------- */
+function normalizeFullName(
+  value: string,
+) {
+  return value
+    .replace(
+      /\s+/g,
+      " ",
+    )
+    .trim();
+}
 
-function createInternalCaseCode() {
+function createCaseCode(
+  id: string,
+) {
   const shortId =
-    crypto.randomUUID()
+    id
       .replace(
         /-/g,
         "",
@@ -238,9 +220,118 @@ function createInternalCaseCode() {
   return `CASE-${shortId}`;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                  Database                                  */
-/* -------------------------------------------------------------------------- */
+function validateNewCase(
+  input:
+    CreateCaseInput,
+) {
+  const fullName =
+    normalizeFullName(
+      input.fullName,
+    );
+
+  if (!fullName) {
+    throw new Error(
+      "PATIENT_NAME_REQUIRED",
+    );
+  }
+
+  const {
+    ageYears,
+    sex,
+    heightCm,
+    weightKg,
+    headRotationStatus,
+  } =
+    input.clinical;
+
+  if (
+    ageYears ===
+      undefined
+  ) {
+    throw new Error(
+      "AGE_REQUIRED",
+    );
+  }
+
+  if (
+    !Number.isFinite(
+      ageYears,
+    ) ||
+    ageYears <= 0 ||
+    ageYears > 120
+  ) {
+    throw new Error(
+      "INVALID_AGE",
+    );
+  }
+
+  if (
+    sex === "unknown"
+  ) {
+    throw new Error(
+      "SEX_REQUIRED",
+    );
+  }
+
+  if (
+    heightCm ===
+      undefined
+  ) {
+    throw new Error(
+      "HEIGHT_REQUIRED",
+    );
+  }
+
+  if (
+    !Number.isFinite(
+      heightCm,
+    ) ||
+    heightCm <= 0 ||
+    heightCm > 250
+  ) {
+    throw new Error(
+      "INVALID_HEIGHT",
+    );
+  }
+
+  if (
+    weightKg ===
+      undefined
+  ) {
+    throw new Error(
+      "WEIGHT_REQUIRED",
+    );
+  }
+
+  if (
+    !Number.isFinite(
+      weightKg,
+    ) ||
+    weightKg <= 0 ||
+    weightKg > 500
+  ) {
+    throw new Error(
+      "INVALID_WEIGHT",
+    );
+  }
+
+  if (
+    !headRotationStatus
+  ) {
+    throw new Error(
+      "HEAD_ROTATION_REQUIRED",
+    );
+  }
+
+  return {
+    fullName,
+    ageYears,
+    sex,
+    heightCm,
+    weightKg,
+    headRotationStatus,
+  };
+}
 
 function getDatabase() {
   if (
@@ -391,9 +482,6 @@ function getDatabase() {
               );
             }
 
-            /*
-             * Migration prototype v1 -> v2
-             */
             if (
               oldVersion > 0 &&
               oldVersion < 2
@@ -401,9 +489,7 @@ function getDatabase() {
               let cursor =
                 await caseStore.openCursor();
 
-              while (
-                cursor
-              ) {
+              while (cursor) {
                 const current =
                   cursor.value as unknown as
                     LegacyCase &
@@ -485,10 +571,6 @@ function getDatabase() {
   return databasePromise;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                   Audit                                    */
-/* -------------------------------------------------------------------------- */
-
 function createAuditEntry(
   caseId: string,
   event:
@@ -510,47 +592,32 @@ function createAuditEntry(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/*                               Create Case                                  */
-/* -------------------------------------------------------------------------- */
-
 export async function createCase(
   input:
     CreateCaseInput,
 ): Promise<AirwayCase> {
+  const validated =
+    validateNewCase(
+      input,
+    );
+
+  const operator =
+    getOperatorProfile();
+
+  if (!operator) {
+    throw new Error(
+      "OPERATOR_PROFILE_REQUIRED",
+    );
+  }
+
   const database =
     await getDatabase();
 
   const now =
     new Date().toISOString();
 
-  /*
-   * نام بیمار اختیاری است.
-   */
-  const normalizedFullName =
-    input.fullName
-      ?.replace(
-        /\s+/g,
-        " ",
-      )
-      .trim() ||
-    undefined;
-
-  /*
-   * اگر نام وجود داشته باشد برای compatibility
-   * در caseCode هم نمایش داده می‌شود.
-   *
-   * اگر نام وجود نداشته باشد یک Case Code خودکار داریم.
-   *
-   * id همچنان شناسه واقعی و یکتا است.
-   */
-  const displayCaseCode =
-    normalizedFullName ??
-    createInternalCaseCode();
-
-  const consentGiven =
-    input.consentAccepted ===
-    true;
+  const id =
+    crypto.randomUUID();
 
   const clinical:
     ClinicalAssessment = {
@@ -559,40 +626,66 @@ export async function createCase(
     ...input.clinical,
 
     fullName:
-      normalizedFullName,
+      validated.fullName,
+
+    ageYears:
+      validated.ageYears,
+
+    sex:
+      validated.sex,
+
+    heightCm:
+      validated.heightCm,
+
+    weightKg:
+      validated.weightKg,
+
+    headRotationStatus:
+      validated.headRotationStatus,
+
+    /*
+     * از UI جدید حذف شده‌اند.
+     */
+    neckRotationDegrees:
+      undefined,
+
+    mallampatiClass:
+      "unknown",
+
+    upperLipBiteClass:
+      "unknown",
   };
 
   const airwayCase:
     AirwayCase = {
-    id:
-      crypto.randomUUID(),
+    id,
 
     caseCode:
-      displayCaseCode,
+      createCaseCode(
+        id,
+      ),
 
     protocolVersion:
       STUDY_PROTOCOL_VERSION,
 
+    operatorId:
+      operator.id,
+
+    operatorNameSnapshot:
+      operator.fullName,
+
     consent: {
       given:
-        consentGiven,
+        false,
 
       version:
         CONSENT_VERSION,
-
-      capturedAt:
-        consentGiven
-          ? now
-          : undefined,
     },
 
     clinical,
 
     /*
-     * Mirror برای compatibility با صفحه Cases فعلی.
-     *
-     * بعداً cases/page.tsx را کاملاً به clinical منتقل
-     * می‌کنیم و این سه property قابل حذف هستند.
+     * Legacy compatibility.
      */
     heightCm:
       clinical.heightCm,
@@ -646,6 +739,7 @@ export async function createCase(
       createAuditEntry(
         airwayCase.id,
         "case_created",
+        `operatorId=${operator.id}`,
       ),
     );
 
@@ -653,10 +747,6 @@ export async function createCase(
 
   return airwayCase;
 }
-
-/* -------------------------------------------------------------------------- */
-/*                                   Cases                                    */
-/* -------------------------------------------------------------------------- */
 
 export async function getCase(
   caseId: string,
@@ -680,10 +770,7 @@ export async function getAllCases() {
     );
 
   return cases.sort(
-    (
-      a,
-      b,
-    ) =>
+    (a, b) =>
       new Date(
         b.createdAt,
       ).getTime() -
@@ -692,10 +779,6 @@ export async function getAllCases() {
       ).getTime(),
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/*                                  Photos                                    */
-/* -------------------------------------------------------------------------- */
 
 export async function getPhotosByCase(
   caseId: string,
@@ -712,7 +795,8 @@ export async function getPhotosByCase(
 
 export async function savePhoto(
   caseId: string,
-  kind: CaptureKind,
+  kind:
+    CaptureKind,
   prepared:
     PreparedImage,
 ): Promise<StoredPhoto> {
@@ -969,10 +1053,6 @@ export async function deletePhoto(
   await transaction.done;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                              Finalize Pre-op                               */
-/* -------------------------------------------------------------------------- */
-
 export async function finalizePreop(
   caseId: string,
 ) {
@@ -1078,10 +1158,6 @@ export async function finalizePreop(
   return airwayCase;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                  Outcome                                   */
-/* -------------------------------------------------------------------------- */
-
 export type FinalizeOutcomeInput =
   Omit<
     IntubationOutcome,
@@ -1098,8 +1174,7 @@ export async function finalizeOutcome(
     !Number.isInteger(
       input.attemptCount,
     ) ||
-    input.attemptCount <
-      1
+    input.attemptCount < 1
   ) {
     throw new Error(
       "INVALID_ATTEMPT_COUNT",
@@ -1113,10 +1188,8 @@ export async function finalizeOutcome(
     lowestSpO2 !==
       undefined &&
     (
-      lowestSpO2 <
-        0 ||
-      lowestSpO2 >
-        100
+      lowestSpO2 < 0 ||
+      lowestSpO2 > 100
     )
   ) {
     throw new Error(
@@ -1227,7 +1300,6 @@ export async function getOutcome(
   );
 }
 
-
 export async function updateCaseStatus(
   caseId: string,
   status:
@@ -1305,7 +1377,6 @@ export async function getQueuedCases() {
       "outcome_complete",
   );
 }
-
 
 export async function getAuditByCase(
   caseId: string,

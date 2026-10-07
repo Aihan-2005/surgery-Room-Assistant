@@ -5,9 +5,17 @@ import type {
 
 import "./globals.css";
 
-import { BottomNav } from "@/components/app-shell/bottom-nav";
+import {
+  BottomNav,
+} from "@/components/app-shell/bottom-nav";
 
-import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import {
+  OperatorGate,
+} from "@/components/app-shell/operator-gate";
+
+import {
+  ServiceWorkerRegister,
+} from "@/components/pwa/service-worker-register";
 
 export const metadata: Metadata = {
   title: {
@@ -23,13 +31,15 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  width: "device-width",
+  width:
+    "device-width",
 
   initialScale: 1,
 
   maximumScale: 1,
 
-  viewportFit: "cover",
+  viewportFit:
+    "cover",
 
   themeColor:
     "#0369a1",
@@ -49,19 +59,23 @@ export default function RootLayout({
       <body>
         <ServiceWorkerRegister />
 
-        <main
-          className="
-            mx-auto
-            min-h-screen
-            max-w-md
-            bg-slate-50
-            pb-28
-          "
-        >
-          {children}
-        </main>
+        <OperatorGate>
+          <>
+            <main
+              className="
+                mx-auto
+                min-h-screen
+                max-w-md
+                bg-slate-50
+                pb-28
+              "
+            >
+              {children}
+            </main>
 
-        <BottomNav />
+            <BottomNav />
+          </>
+        </OperatorGate>
       </body>
     </html>
   );
