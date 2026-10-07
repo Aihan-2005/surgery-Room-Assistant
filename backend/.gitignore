@@ -1,0 +1,18 @@
+# Rename this file to  .gitignore  and put it in the REPOSITORY ROOT
+# (the folder that contains backend/ and venv/)
+
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+.env
+db.sqlite3
+
+# patient photos and generated files must never be committed
+media/
+backend/media/
+staticfiles/
+backend/staticfiles/
+
+.DS_Store
