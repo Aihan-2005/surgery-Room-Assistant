@@ -305,10 +305,8 @@ export default function NewCasePage() {
       return;
     }
 
-    /*
-     * بعد از validation بالا این مقادیر
-     * حتماً وجود دارند.
-     */
+
+    
     if (
       ageYears ===
         undefined ||
@@ -1024,7 +1022,7 @@ export default function NewCasePage() {
           </div>
         </section>
 
-        {/* Head rotation */}
+
 
         <section
           id="headRotation"

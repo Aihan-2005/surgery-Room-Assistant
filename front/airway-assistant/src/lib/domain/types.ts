@@ -47,15 +47,30 @@ export type HeadRotationStatus =
   | "incomplete";
 
 /* -------------------------------------------------------------------------- */
-/* Operator                                                                   */
+/* Operator / Device                                                          */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * پروفایل پزشک/دستگاه ثبت‌شده در Backend.
+ *
+ * id:
+ * همان device_id است که برای Django ارسال می‌شود.
+ *
+ * deviceToken:
+ * Token صادرشده توسط Backend است و برای
+ * Authorization: Device <token>
+ * استفاده می‌شود.
+ */
 export interface OperatorProfile {
   id: string;
 
   fullName: string;
 
-  version: 1;
+  deviceToken: string;
+
+  registeredAt: string;
+
+  version: 2;
 
   createdAt: string;
 
@@ -195,6 +210,9 @@ export interface ImageQualityMetrics {
 
   checkedAt?: string;
 
+  /**
+   * QC ممکن است بعداً metricهای بیشتری داشته باشد.
+   */
   [key: string]: unknown;
 }
 
@@ -216,11 +234,14 @@ export interface PreparedImage {
 
 export interface ClinicalAssessment {
   /**
-   * Optional در type برای سازگاری Caseهای قدیمی.
-   * در createCase برای Case جدید اجباری است.
+   * برای Case جدید در createCase اجباری می‌شود.
+   * Optional بودن اینجا فقط برای سازگاری داده‌های قدیمی است.
    */
   fullName?: string;
 
+  /**
+   * Legacy fields.
+   */
   firstName?: string;
 
   lastName?: string;
@@ -239,7 +260,11 @@ export interface ClinicalAssessment {
   neckMobility: NeckMobility;
 
   /**
-   * مقدار اصلی جدید برای ارزیابی چرخش سر.
+   * complete:
+   * چرخش کامل
+   *
+   * incomplete:
+   * چرخش ناکامل
    */
   headRotationStatus?:
     HeadRotationStatus;
@@ -250,8 +275,8 @@ export interface ClinicalAssessment {
   neckRotationDegrees?: number;
 
   /**
-   * این دو ورودی از UI حذف شده‌اند،
-   * اما برای داده‌های قدیمی حفظ می‌شوند.
+   * فعلاً از فرم حذف شده‌اند،
+   * ولی برای backward compatibility نگه داشته می‌شوند.
    */
   mallampatiClass:
     MallampatiClass;
@@ -333,23 +358,30 @@ export interface IntubationOutcome {
 
 export interface AirwayCase {
   /**
-   * شناسه اصلی و یکتای Case.
+   * UUID اصلی Case.
+   *
+   * همین UUID به‌عنوان Assessment ID
+   * به Backend ارسال می‌شود.
    */
   id: string;
 
   /**
-   * شناسه کوتاه نمایشی.
+   * شناسه کوتاه فقط برای نمایش.
    */
   caseCode: string;
 
   protocolVersion: string;
 
   /**
-   * اپراتور ایجادکننده Case.
-   * optional برای Caseهای legacy.
+   * همان Device ID پزشک.
+   *
+   * Optional برای Caseهای قدیمی.
    */
   operatorId?: string;
 
+  /**
+   * Snapshot نام پزشک هنگام ایجاد Case.
+   */
   operatorNameSnapshot?: string;
 
   consent:
@@ -366,7 +398,7 @@ export interface AirwayCase {
   syncStatus:
     SyncStatus;
 
-  /*
+  /**
    * Legacy compatibility.
    */
   heightCm?: number;
@@ -392,6 +424,12 @@ export interface AirwayCase {
 /* -------------------------------------------------------------------------- */
 
 export interface StoredPhoto {
+  /**
+   * UUID عکس.
+   *
+   * همین مقدار به Backend به‌عنوان
+   * AssessmentPhoto ID ارسال می‌شود.
+   */
   id: string;
 
   caseId: string;

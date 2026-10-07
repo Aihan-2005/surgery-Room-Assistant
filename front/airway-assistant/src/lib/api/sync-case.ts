@@ -12,17 +12,27 @@ import type {
   CaseSyncResponse,
 } from "@/lib/api/contracts";
 
-export class CaseSyncError extends Error {
+import {
+  getOperatorProfile,
+} from "@/lib/profile/operator-profile";
+
+export class CaseSyncError
+  extends Error {
   code: string;
 
   status?: number;
 
   constructor(
-    message: string,
-    code = "SYNC_FAILED",
-    status?: number,
+    message:
+      string,
+    code =
+      "SYNC_FAILED",
+    status?:
+      number,
   ) {
-    super(message);
+    super(
+      message,
+    );
 
     this.name =
       "CaseSyncError";
@@ -36,7 +46,8 @@ export class CaseSyncError extends Error {
 }
 
 async function readResponse(
-  response: Response,
+  response:
+    Response,
 ): Promise<CaseSyncResponse> {
   try {
     return (
@@ -44,7 +55,8 @@ async function readResponse(
     ) as CaseSyncResponse;
   } catch {
     return {
-      success: false,
+      success:
+        false,
 
       code:
         "INVALID_RESPONSE",
@@ -55,9 +67,64 @@ async function readResponse(
   }
 }
 
+function isRetryableError(
+  error:
+    unknown,
+) {
+  if (
+    !(error instanceof
+      CaseSyncError)
+  ) {
+    return true;
+  }
+
+  if (
+    error.code ===
+      "BACKEND_NOT_CONFIGURED" ||
+    error.code ===
+      "SYNC_GATEWAY_ERROR"
+  ) {
+    return true;
+  }
+
+  if (
+    error.status ===
+      408 ||
+    error.status ===
+      425 ||
+    error.status ===
+      429
+  ) {
+    return true;
+  }
+
+  if (
+    typeof error.status ===
+      "number" &&
+    error.status >=
+      500
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function syncCase(
-  caseId: string,
+  caseId:
+    string,
 ): Promise<CaseSyncResponse> {
+  const operator =
+    getOperatorProfile();
+
+  if (!operator) {
+    throw new CaseSyncError(
+      "پزشک در Backend ثبت نشده است.",
+      "DEVICE_NOT_REGISTERED",
+      401,
+    );
+  }
+
   const airwayCase =
     await getCase(
       caseId,
@@ -100,7 +167,13 @@ export async function syncCase(
       await fetch(
         "/api/sync/cases",
         {
-          method: "POST",
+          method:
+            "POST",
+
+          headers: {
+            "X-Device-Token":
+              operator.deviceToken,
+          },
 
           body,
 
@@ -118,19 +191,15 @@ export async function syncCase(
       !response.ok ||
       !result.success
     ) {
-      const message =
+      throw new CaseSyncError(
         result.success
           ? "ارسال Case ناموفق بود."
-          : result.message;
+          : result.message,
 
-      const code =
         result.success
           ? "SYNC_FAILED"
-          : result.code;
+          : result.code,
 
-      throw new CaseSyncError(
-        message,
-        code,
         response.status,
       );
     }
@@ -141,11 +210,24 @@ export async function syncCase(
     );
 
     return result;
-  } catch (error) {
-    await updateCaseStatus(
-      caseId,
-      "failed",
-    );
+  } catch (
+    error
+  ) {
+    if (
+      isRetryableError(
+        error,
+      )
+    ) {
+      await updateCaseStatus(
+        caseId,
+        "queued",
+      );
+    } else {
+      await updateCaseStatus(
+        caseId,
+        "failed",
+      );
+    }
 
     if (
       error instanceof
@@ -158,8 +240,9 @@ export async function syncCase(
       error instanceof Error
         ? error.message
         : "ارسال Case انجام نشد.",
+
+      "NETWORK_ERROR",
     );
   }
 }
 
- 

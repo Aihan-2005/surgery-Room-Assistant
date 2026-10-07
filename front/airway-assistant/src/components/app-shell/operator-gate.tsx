@@ -13,8 +13,9 @@ import {
 } from "lucide-react";
 
 import {
-  createOperatorProfile,
+  getLegacyOperatorName,
   getOperatorProfile,
+  registerOperator,
 } from "@/lib/profile/operator-profile";
 
 interface OperatorGateProps {
@@ -45,6 +46,12 @@ export function OperatorGate({
     useState("");
 
   const [
+    submitting,
+    setSubmitting,
+  ] =
+    useState(false);
+
+  const [
     error,
     setError,
   ] =
@@ -56,14 +63,29 @@ export function OperatorGate({
     const profile =
       getOperatorProfile();
 
+    if (profile) {
+      setState(
+        "ready",
+      );
+
+      return;
+    }
+
+    const legacyName =
+      getLegacyOperatorName();
+
+    if (legacyName) {
+      setFullName(
+        legacyName,
+      );
+    }
+
     setState(
-      profile
-        ? "ready"
-        : "setup",
+      "setup",
     );
   }, []);
 
-  function handleSubmit(
+  async function handleSubmit(
     event:
       FormEvent<HTMLFormElement>,
   ) {
@@ -73,7 +95,10 @@ export function OperatorGate({
 
     const normalizedName =
       fullName
-        .replace(/\s+/g, " ")
+        .replace(
+          /\s+/g,
+          " ",
+        )
         .trim();
 
     if (
@@ -87,7 +112,11 @@ export function OperatorGate({
     }
 
     try {
-      createOperatorProfile(
+      setSubmitting(
+        true,
+      );
+
+      await registerOperator(
         normalizedName,
       );
 
@@ -101,8 +130,33 @@ export function OperatorGate({
         caughtError,
       );
 
-      setError(
-        "ثبت اطلاعات پزشک انجام نشد.",
+      const code =
+        caughtError instanceof
+        Error
+          ? caughtError.message
+          : "";
+
+      switch (code) {
+        case "BACKEND_NOT_CONFIGURED":
+          setError(
+            "آدرس Backend تنظیم نشده است.",
+          );
+          break;
+
+        case "REGISTRATION_RATE_LIMITED":
+          setError(
+            "تعداد تلاش‌های ثبت‌نام بیش از حد مجاز بوده است. کمی بعد دوباره تلاش کنید.",
+          );
+          break;
+
+        default:
+          setError(
+            "برای اولین فعال‌سازی باید به Backend متصل باشید. اتصال سرور را بررسی و دوباره تلاش کنید.",
+          );
+      }
+    } finally {
+      setSubmitting(
+        false,
       );
     }
   }
@@ -182,7 +236,7 @@ export function OperatorGate({
               text-sky-700
             "
           >
-            راه‌اندازی اولیه
+            فعال‌سازی اولیه
           </p>
 
           <h1
@@ -205,8 +259,8 @@ export function OperatorGate({
             "
           >
             این اطلاعات فقط در اولین
-            ورود به برنامه دریافت
-            می‌شود.
+            ورود دریافت می‌شود و دستگاه
+            شما در سرور ثبت خواهد شد.
           </p>
 
           <form
@@ -243,6 +297,9 @@ export function OperatorGate({
               type="text"
               autoFocus
               autoComplete="name"
+              disabled={
+                submitting
+              }
               value={
                 fullName
               }
@@ -250,12 +307,13 @@ export function OperatorGate({
                 event,
               ) => {
                 setFullName(
-                  event.target.value,
+                  event.target
+                    .value,
                 );
 
-                if (error) {
-                  setError(null);
-                }
+                setError(
+                  null,
+                );
               }}
               placeholder="مثلاً دکتر علی رضایی"
               aria-invalid={
@@ -276,6 +334,7 @@ export function OperatorGate({
                 transition
                 placeholder:text-slate-400
                 focus:ring-4
+                disabled:bg-slate-100
                 ${
                   error
                     ? "border-red-400 focus:border-red-500 focus:ring-red-100"
@@ -288,9 +347,10 @@ export function OperatorGate({
               <p
                 role="alert"
                 className="
-                  mt-2
+                  mt-3
                   text-xs
                   font-medium
+                  leading-6
                   text-red-600
                 "
               >
@@ -300,6 +360,9 @@ export function OperatorGate({
 
             <button
               type="submit"
+              disabled={
+                submitting
+              }
               className="
                 mt-5
                 flex
@@ -307,6 +370,7 @@ export function OperatorGate({
                 w-full
                 items-center
                 justify-center
+                gap-2
                 rounded-2xl
                 bg-sky-700
                 px-5
@@ -315,10 +379,20 @@ export function OperatorGate({
                 shadow-sm
                 transition
                 hover:bg-sky-800
+                disabled:opacity-60
                 active:scale-[0.99]
               "
             >
-              ورود به برنامه
+              {submitting && (
+                <LoaderCircle
+                  size={19}
+                  className="animate-spin"
+                />
+              )}
+
+              {submitting
+                ? "در حال ثبت دستگاه..."
+                : "ورود به برنامه"}
             </button>
           </form>
         </section>

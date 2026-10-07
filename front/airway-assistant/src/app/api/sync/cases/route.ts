@@ -2,98 +2,278 @@ import {
   NextResponse,
 } from "next/server";
 
+import type {
+  AirwayCase,
+  CaptureKind,
+} from "@/lib/domain/types";
+
 export const runtime =
   "nodejs";
 
 export const dynamic =
   "force-dynamic";
 
-function normalizeBaseUrl(
-  value: string,
+const REQUEST_TIMEOUT_MS =
+  15_000;
+
+interface PhotoMetadata {
+  id: string;
+
+  formField: string;
+
+  kind: CaptureKind;
+
+  filename: string;
+
+  mimeType: string;
+}
+
+interface UploadMetadata {
+  case:
+    AirwayCase;
+
+  photos:
+    PhotoMetadata[];
+}
+
+function getBackendBaseUrl() {
+  return process.env
+    .BACKEND_API_URL
+    ?.replace(
+      /\/+$/,
+      "",
+    );
+}
+
+function backendHeaders(
+  token: string,
+  json = false,
 ) {
-  return value.replace(
-    /\/+$/,
-    "",
+  const headers =
+    new Headers();
+
+  headers.set(
+    "Accept",
+    "application/json",
   );
-}
 
-function normalizePath(
-  value: string,
-) {
-  return value.startsWith(
-    "/",
-  )
-    ? value
-    : `/${value}`;
-}
+  headers.set(
+    "Authorization",
+    `Device ${token}`,
+  );
 
-export async function GET() {
-  const backendUrl =
-    process.env
-      .BACKEND_API_URL;
-
-  if (!backendUrl) {
-    return NextResponse.json(
-      {
-        configured:
-          false,
-
-        reachable:
-          false,
-
-        message:
-          "Backend API هنوز تنظیم نشده است.",
-      },
-      {
-        status: 200,
-      },
+  if (json) {
+    headers.set(
+      "Content-Type",
+      "application/json",
     );
   }
 
-  const healthPath =
-    process.env
-      .BACKEND_HEALTH_PATH ??
-    "/health";
+  return headers;
+}
+
+async function fetchWithTimeout(
+  input:
+    string,
+  init:
+    RequestInit,
+) {
+  const controller =
+    new AbortController();
+
+  const timeout =
+    setTimeout(
+      () =>
+        controller.abort(),
+      REQUEST_TIMEOUT_MS,
+    );
+
+  try {
+    return await fetch(
+      input,
+      {
+        ...init,
+
+        signal:
+          controller.signal,
+
+        cache:
+          "no-store",
+      },
+    );
+  } finally {
+    clearTimeout(
+      timeout,
+    );
+  }
+}
+
+function mapSex(
+  sex:
+    AirwayCase["clinical"]["sex"],
+) {
+  if (
+    sex === "male"
+  ) {
+    return "M";
+  }
+
+  if (
+    sex === "female"
+  ) {
+    return "F";
+  }
+
+  throw new Error(
+    "INVALID_SEX",
+  );
+}
+
+function mapNeckMovement(
+  status:
+    AirwayCase["clinical"]["headRotationStatus"],
+) {
+  if (
+    status ===
+    "complete"
+  ) {
+    return "normal";
+  }
+
+  if (
+    status ===
+    "incomplete"
+  ) {
+    return "limited";
+  }
+
+  throw new Error(
+    "INVALID_NECK_MOVEMENT",
+  );
+}
+
+function mapPosition(
+  kind:
+    CaptureKind,
+) {
+  switch (kind) {
+    case "front_neutral":
+      return "front";
+
+    case "mallampati":
+      return "mallampati";
+
+    case "mouth_open":
+      return "open_mouth";
+
+    case "lateral_neutral":
+      return "side";
+
+    /*
+     * فقط برای داده legacy.
+     */
+    case "upper_lip_bite_front":
+      return "front";
+  }
+}
+
+async function parseBackendResponse(
+  response:
+    Response,
+) {
+  const text =
+    await response.text();
+
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(
+      text,
+    ) as unknown;
+  } catch {
+    return {
+      detail:
+        text,
+    };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Connectivity probe                                                         */
+/* -------------------------------------------------------------------------- */
+
+export async function GET(
+  request:
+    Request,
+) {
+  const backendUrl =
+    getBackendBaseUrl();
+
+  if (!backendUrl) {
+    return NextResponse.json({
+      configured:
+        false,
+
+      reachable:
+        false,
+
+      authenticated:
+        false,
+
+      message:
+        "Backend API تنظیم نشده است.",
+    });
+  }
+
+  const token =
+    request.headers.get(
+      "x-device-token",
+    );
 
   try {
     const response =
-      await fetch(
-        `${normalizeBaseUrl(
-          backendUrl,
-        )}${normalizePath(
-          healthPath,
-        )}`,
+      await fetchWithTimeout(
+        `${backendUrl}/api/assessments/`,
         {
-          method: "GET",
+          method:
+            "GET",
 
-          cache:
-            "no-store",
-
-          headers: {
-            Accept:
-              "application/json",
-          },
+          headers:
+            token
+              ? backendHeaders(
+                  token,
+                )
+              : {
+                  Accept:
+                    "application/json",
+                },
         },
       );
 
-    return NextResponse.json(
-      {
-        configured:
-          true,
+    /*
+     * حتی 401 یعنی خود Django در دسترس است.
+     */
+    const reachable =
+      response.ok ||
+      response.status ===
+        401 ||
+      response.status ===
+        403;
 
-        reachable:
-          response.ok,
+    return NextResponse.json({
+      configured:
+        true,
 
-        status:
-          response.status,
-      },
-      {
-        status:
-          response.ok
-            ? 200
-            : 503,
-      },
-    );
+      reachable,
+
+      authenticated:
+        response.ok,
+
+      status:
+        response.status,
+    });
   } catch {
     return NextResponse.json(
       {
@@ -101,6 +281,9 @@ export async function GET() {
           true,
 
         reachable:
+          false,
+
+        authenticated:
           false,
 
         message:
@@ -113,23 +296,28 @@ export async function GET() {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Full assessment sync                                                       */
+/* -------------------------------------------------------------------------- */
+
 export async function POST(
-  request: Request,
+  request:
+    Request,
 ) {
   const backendUrl =
-    process.env
-      .BACKEND_API_URL;
+    getBackendBaseUrl();
 
   if (!backendUrl) {
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
 
         code:
           "BACKEND_NOT_CONFIGURED",
 
         message:
-          "Backend API هنوز تنظیم نشده است.",
+          "Backend API تنظیم نشده است.",
       },
       {
         status: 503,
@@ -137,51 +325,52 @@ export async function POST(
     );
   }
 
+  const token =
+    request.headers.get(
+      "x-device-token",
+    );
+
+  if (!token) {
+    return NextResponse.json(
+      {
+        success:
+          false,
+
+        code:
+          "DEVICE_TOKEN_REQUIRED",
+
+        message:
+          "Device token موجود نیست.",
+      },
+      {
+        status: 401,
+      },
+    );
+  }
+
   try {
-    const incomingForm =
+    const formData =
       await request.formData();
 
-    const metadata =
-      incomingForm.get(
+    const metadataValue =
+      formData.get(
         "metadata",
       );
 
     if (
-      typeof metadata !==
-        "string" ||
-      !metadata.trim()
+      typeof metadataValue !==
+      "string"
     ) {
       return NextResponse.json(
         {
-          success: false,
-
-          code:
-            "INVALID_REQUEST",
-
-          message:
-            "Metadata ارسال نشده است.",
-        },
-        {
-          status: 400,
-        },
-      );
-    }
-
- 
-    try {
-      JSON.parse(
-        metadata,
-      );
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
+          success:
+            false,
 
           code:
             "INVALID_METADATA",
 
           message:
-            "Metadata معتبر نیست.",
+            "Metadata موجود نیست.",
         },
         {
           status: 400,
@@ -189,81 +378,101 @@ export async function POST(
       );
     }
 
-    const outboundForm =
-      new FormData();
+    const metadata =
+      JSON.parse(
+        metadataValue,
+      ) as UploadMetadata;
 
-    for (
-      const [
-        key,
-        value,
-      ] of incomingForm.entries()
+    const airwayCase =
+      metadata.case;
+
+    const clinical =
+      airwayCase.clinical;
+
+    if (
+      !clinical.fullName ||
+      clinical.ageYears ===
+        undefined ||
+      clinical.heightCm ===
+        undefined ||
+      clinical.weightKg ===
+        undefined
     ) {
-      outboundForm.append(
-        key,
-        value,
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          code:
+            "INCOMPLETE_CASE",
+
+          message:
+            "اطلاعات بیمار کامل نیست.",
+        },
+        {
+          status: 400,
+        },
       );
     }
 
-    const backendPath =
-      process.env
-        .BACKEND_CASES_PATH ??
-      "/v1/cases";
+    /* ------------------------------------------------------------------ */
+    /* 1. Create/update Assessment                                         */
+    /* ------------------------------------------------------------------ */
 
-    const targetUrl =
-      `${normalizeBaseUrl(
-        backendUrl,
-      )}${normalizePath(
-        backendPath,
-      )}`;
+    const assessmentPayload = {
+      full_name:
+        clinical.fullName,
 
-    const headers =
-      new Headers();
+      age:
+        clinical.ageYears,
 
-    headers.set(
-      "Accept",
-      "application/json",
-    );
+      sex:
+        mapSex(
+          clinical.sex,
+        ),
 
-  
-    const apiKey =
-      process.env
-        .BACKEND_API_KEY;
+      height_cm:
+        clinical.heightCm,
 
-    if (apiKey) {
-      headers.set(
-        "Authorization",
-        `Bearer ${apiKey}`,
-      );
-    }
+      weight_kg:
+        clinical.weightKg,
 
-    const backendResponse =
-      await fetch(
-        targetUrl,
+      neck_movement:
+        mapNeckMovement(
+          clinical.headRotationStatus,
+        ),
+
+      created_at:
+        airwayCase.createdAt,
+    };
+
+    const assessmentResponse =
+      await fetchWithTimeout(
+        `${backendUrl}/api/assessments/${airwayCase.id}/`,
         {
           method:
-            "POST",
+            "PUT",
 
-          headers,
+          headers:
+            backendHeaders(
+              token,
+              true,
+            ),
 
           body:
-            outboundForm,
-
-          cache:
-            "no-store",
+            JSON.stringify(
+              assessmentPayload,
+            ),
         },
       );
 
-    const responseText =
-      await backendResponse.text();
-
     if (
-      !backendResponse.ok
+      !assessmentResponse.ok
     ) {
-      console.error(
-        "Backend upload failed:",
-        backendResponse.status,
-        responseText,
-      );
+      const backendError =
+        await parseBackendResponse(
+          assessmentResponse,
+        );
 
       return NextResponse.json(
         {
@@ -271,81 +480,197 @@ export async function POST(
             false,
 
           code:
-            "BACKEND_REJECTED_REQUEST",
+            assessmentResponse.status ===
+            401
+              ? "DEVICE_UNAUTHORIZED"
+              : "ASSESSMENT_REJECTED",
 
           message:
-            "Backend درخواست ارسال را نپذیرفت.",
+            "Backend اطلاعات بیمار را نپذیرفت.",
 
-          status:
-            backendResponse.status,
+          backend:
+            backendError,
         },
         {
           status:
-            backendResponse.status,
+            assessmentResponse.status,
         },
       );
     }
 
-    let backendData:
-      unknown = null;
+    /* ------------------------------------------------------------------ */
+    /* 2. Upload photos                                                    */
+    /* ------------------------------------------------------------------ */
 
-    if (
-      responseText
+    for (
+      const photo of
+      metadata.photos
     ) {
-      try {
-        backendData =
-          JSON.parse(
-            responseText,
+      const file =
+        formData.get(
+          photo.formField,
+        );
+
+      if (
+        !file ||
+        typeof file ===
+          "string"
+      ) {
+        return NextResponse.json(
+          {
+            success:
+              false,
+
+            code:
+              "PHOTO_FILE_MISSING",
+
+            message:
+              `فایل ${photo.id} موجود نیست.`,
+          },
+          {
+            status: 400,
+          },
+        );
+      }
+
+      const backendPhotoForm =
+        new FormData();
+
+      backendPhotoForm.append(
+        "position",
+        mapPosition(
+          photo.kind,
+        ),
+      );
+
+      backendPhotoForm.append(
+        "image",
+        file,
+        photo.filename,
+      );
+
+      const photoResponse =
+        await fetchWithTimeout(
+          `${backendUrl}/api/assessments/${airwayCase.id}/photos/${photo.id}/`,
+          {
+            method:
+              "PUT",
+
+            headers:
+              backendHeaders(
+                token,
+              ),
+
+            body:
+              backendPhotoForm,
+          },
+        );
+
+      if (
+        !photoResponse.ok
+      ) {
+        const backendError =
+          await parseBackendResponse(
+            photoResponse,
           );
-      } catch {
-        backendData = {
-          raw:
-            responseText,
-        };
+
+        return NextResponse.json(
+          {
+            success:
+              false,
+
+            code:
+              photoResponse.status ===
+              401
+                ? "DEVICE_UNAUTHORIZED"
+                : "PHOTO_UPLOAD_REJECTED",
+
+            message:
+              `ارسال تصویر ${photo.id} ناموفق بود.`,
+
+            backend:
+              backendError,
+          },
+          {
+            status:
+              photoResponse.status,
+          },
+        );
       }
     }
 
-    const remoteCaseId =
-      typeof backendData ===
-        "object" &&
-      backendData !==
-        null &&
-      "id" in backendData &&
-      typeof (
-        backendData as {
-          id?: unknown;
-        }
-      ).id === "string"
-        ? (
-            backendData as {
-              id: string;
-            }
-          ).id
-        : undefined;
+    /* ------------------------------------------------------------------ */
+    /* 3. Complete assessment                                              */
+    /* ------------------------------------------------------------------ */
 
-    return NextResponse.json(
-      {
-        success:
-          true,
+    const completeResponse =
+      await fetchWithTimeout(
+        `${backendUrl}/api/assessments/${airwayCase.id}/complete/`,
+        {
+          method:
+            "POST",
 
-        remoteCaseId,
+          headers:
+            backendHeaders(
+              token,
+            ),
+        },
+      );
 
-        receivedAt:
-          new Date().toISOString(),
-      },
-      {
-        status: 200,
-      },
-    );
-  } catch (error) {
+    const completionPayload =
+      await parseBackendResponse(
+        completeResponse,
+      );
+
+    if (
+      !completeResponse.ok
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          code:
+            "ASSESSMENT_NOT_COMPLETE",
+
+          message:
+            "Backend Case را کامل تشخیص نداد.",
+
+          backend:
+            completionPayload,
+        },
+        {
+          status:
+            completeResponse.status,
+        },
+      );
+    }
+
+    return NextResponse.json({
+      success:
+        true,
+
+      remoteCaseId:
+        airwayCase.id,
+
+      receivedAt:
+        new Date().toISOString(),
+
+      backend:
+        completionPayload,
+    });
+  } catch (
+    error
+  ) {
     console.error(
-      "Case sync gateway error:",
+      "Assessment sync proxy failed:",
       error,
     );
 
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
 
         code:
           "SYNC_GATEWAY_ERROR",
@@ -359,4 +684,4 @@ export async function POST(
     );
   }
 }
- 
+
