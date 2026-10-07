@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -13,16 +14,20 @@ import {
 } from "next/navigation";
 
 import {
-  ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   CloudOff,
   Images,
   LoaderCircle,
 } from "lucide-react";
 
-import { NetworkPill } from "@/components/app-shell/network-pill";
+import {
+  NetworkPill,
+} from "@/components/app-shell/network-pill";
 
-import { PhotoCard } from "@/components/capture/photo-card";
+import {
+  PhotoCard,
+} from "@/components/capture/photo-card";
 
 import {
   CAPTURE_PROTOCOL,
@@ -38,6 +43,7 @@ import {
 import type {
   AirwayCase,
   CaptureKind,
+  PreparedImage,
   StoredPhoto,
 } from "@/lib/domain/types";
 
@@ -58,6 +64,15 @@ export default function CapturePage() {
   const caseId =
     params.caseId;
 
+  /**
+   * تمام Object URLهایی که در این صفحه می‌سازیم
+   * اینجا track می‌شوند تا هنگام خروج از صفحه آزاد شوند.
+   */
+  const previewUrlsRef =
+    useRef<Set<string>>(
+      new Set(),
+    );
+
   const [
     airwayCase,
     setAirwayCase,
@@ -69,19 +84,21 @@ export default function CapturePage() {
   const [
     photos,
     setPhotos,
-  ] = useState<
-    Partial<
-      Record<
-        CaptureKind,
-        PhotoPreview
+  ] =
+    useState<
+      Partial<
+        Record<
+          CaptureKind,
+          PhotoPreview
+        >
       >
-    >
-  >({});
+    >({});
 
   const [
     loading,
     setLoading,
-  ] = useState(true);
+  ] =
+    useState(true);
 
   const [
     savingKind,
@@ -94,99 +111,200 @@ export default function CapturePage() {
   const [
     submitting,
     setSubmitting,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     error,
     setError,
-  ] = useState<string | null>(
-    null,
-  );
+  ] =
+    useState<string | null>(
+      null,
+    );
 
-  const loadData =
-    useCallback(async () => {
-      const [
-        loadedCase,
-        storedPhotos,
-      ] =
-        await Promise.all([
-          getCase(caseId),
+  /**
+   * ایجاد Preview URL و ثبت آن برای cleanup بعدی.
+   */
+  const createPreviewUrl =
+    useCallback(
+      (blob: Blob) => {
+        const url =
+          URL.createObjectURL(
+            blob,
+          );
 
-          getPhotosByCase(
-            caseId,
-          ),
-        ]);
-
-      if (!loadedCase) {
-        setError(
-          "Case موردنظر پیدا نشد.",
+        previewUrlsRef.current.add(
+          url,
         );
 
-        setLoading(false);
+        return url;
+      },
+      [],
+    );
 
-        return;
-      }
+  /**
+   * حذف یک Preview URL مشخص.
+   */
+  const revokePreviewUrl =
+    useCallback(
+      (url: string) => {
+        URL.revokeObjectURL(
+          url,
+        );
 
-      setAirwayCase(
-        loadedCase,
-      );
+        previewUrlsRef.current.delete(
+          url,
+        );
+      },
+      [],
+    );
 
-      const previews: Partial<
-        Record<
-          CaptureKind,
-          PhotoPreview
-        >
-      > = {};
+  /**
+   * خواندن Case و تمام تصاویر ذخیره‌شده آن.
+   */
+  const loadData =
+    useCallback(async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      for (
-        const photo of
-        storedPhotos
-      ) {
-        previews[
-          photo.kind
-        ] = {
-          photo,
+        const [
+          loadedCase,
+          storedPhotos,
+        ] =
+          await Promise.all([
+            getCase(caseId),
 
-          url:
-            URL.createObjectURL(
-              photo.blob,
+            getPhotosByCase(
+              caseId,
             ),
-        };
+          ]);
+
+        if (!loadedCase) {
+          setAirwayCase(
+            null,
+          );
+
+          setError(
+            "Case موردنظر پیدا نشد.",
+          );
+
+          return;
+        }
+
+        setAirwayCase(
+          loadedCase,
+        );
+
+        const previews:
+          Partial<
+            Record<
+              CaptureKind,
+              PhotoPreview
+            >
+          > = {};
+
+        for (
+          const photo of
+          storedPhotos
+        ) {
+          /**
+           * ممکن است IndexedDB شامل تصاویر مربوط به
+           * protocol قدیمی باشد.
+           *
+           * فقط تصاویر مربوط به protocol فعلی را
+           * در UI نمایش می‌دهیم.
+           */
+          const isCurrentKind =
+            CAPTURE_PROTOCOL.some(
+              (step) =>
+                step.kind ===
+                photo.kind,
+            );
+
+          if (
+            !isCurrentKind
+          ) {
+            continue;
+          }
+
+          previews[
+            photo.kind
+          ] = {
+            photo,
+
+            url:
+              createPreviewUrl(
+                photo.blob,
+              ),
+          };
+        }
+
+        setPhotos(
+          previews,
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load capture data:",
+          error,
+        );
+
+        setError(
+          "خواندن اطلاعات Case انجام نشد.",
+        );
+      } finally {
+        setLoading(false);
       }
-
-      setPhotos(
-        previews,
-      );
-
-      setLoading(false);
-    }, [caseId]);
+    }, [
+      caseId,
+      createPreviewUrl,
+    ]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-useEffect(() => {
-  return () => {
-    Object.values(
-      photos,
-    ).forEach(
-      (preview) => {
-        if (preview?.url) {
-          URL.revokeObjectURL(
-            preview.url,
-          );
-        }
-      },
+  /**
+   * Cleanup تمام URLهای ساخته‌شده فقط هنگام
+   * unmount شدن خود صفحه.
+   *
+   * این بهتر از dependency روی photos است،
+   * چون در آن حالت ممکن بود preview فعلی زودتر revoke شود.
+   */
+  useEffect(() => {
+    return () => {
+      for (
+        const url of
+        previewUrlsRef.current
+      ) {
+        URL.revokeObjectURL(
+          url,
+        );
+      }
+
+      previewUrlsRef.current.clear();
+    };
+  }, []);
+
+  /**
+   * پوزیشن‌هایی که الزاماً باید عکس داشته باشند.
+   *
+   * تعداد این‌ها hard-code نشده و مستقیماً
+   * از Capture Protocol می‌آید.
+   */
+  const requiredSteps =
+    useMemo(
+      () =>
+        CAPTURE_PROTOCOL.filter(
+          (step) =>
+            step.required,
+        ),
+      [],
     );
-  };
-}, [photos]);
 
   const completedRequired =
     useMemo(() => {
-      return CAPTURE_PROTOCOL.filter(
-        (step) =>
-          step.required,
-      ).filter(
+      return requiredSteps.filter(
         (step) =>
           Boolean(
             photos[
@@ -194,36 +312,59 @@ useEffect(() => {
             ],
           ),
       ).length;
-    }, [photos]);
+    }, [
+      photos,
+      requiredSteps,
+    ]);
 
   const requiredCount =
-    CAPTURE_PROTOCOL.filter(
-      (step) =>
-        step.required,
-    ).length;
+    requiredSteps.length;
 
   const isComplete =
     completedRequired ===
     requiredCount;
 
+  /**
+   * دریافت PreparedImage از GuidedCamera.
+   *
+   * PreparedImage شامل:
+   *
+   * file
+   * source
+   * qc
+   *
+   * است و دیگر File خام به Database فرستاده نمی‌شود.
+   */
   async function handlePhoto(
     kind: CaptureKind,
-    file: File,
+    image: PreparedImage,
   ) {
     setError(null);
 
-    setSavingKind(kind);
+    setSavingKind(
+      kind,
+    );
 
     try {
       const storedPhoto =
         await savePhoto(
           caseId,
           kind,
-          file,
+          image,
         );
 
+      /**
+       * اگر Case قبلاً وارد Queue شده باشد
+       * و یکی از عکس‌ها تغییر کند،
+       * Case دیگر آماده ارسال قبلی محسوب نمی‌شود.
+       */
+      await updateCaseStatus(
+        caseId,
+        "draft",
+      );
+
       const url =
-        URL.createObjectURL(
+        createPreviewUrl(
           storedPhoto.blob,
         );
 
@@ -233,7 +374,7 @@ useEffect(() => {
             current[kind];
 
           if (old?.url) {
-            URL.revokeObjectURL(
+            revokePreviewUrl(
               old.url,
             );
           }
@@ -251,7 +392,10 @@ useEffect(() => {
         },
       );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Failed to save photo:",
+        error,
+      );
 
       setError(
         "ذخیره تصویر انجام نشد.",
@@ -263,17 +407,22 @@ useEffect(() => {
     }
   }
 
+  /**
+   * تکمیل مرحله Capture.
+   */
   async function handleReady() {
     if (!isComplete) {
       setError(
-        "ابتدا تمام تصاویر الزامی را ثبت کنید.",
+        "ابتدا تمام پوزیشن‌های الزامی را ثبت کنید.",
       );
 
       return;
     }
 
     try {
-      setSubmitting(true);
+      setSubmitting(
+        true,
+      );
 
       setError(null);
 
@@ -286,13 +435,18 @@ useEffect(() => {
         "/queue",
       );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Failed to queue case:",
+        error,
+      );
 
       setError(
-        "قرار دادن Case در صف انجام نشد.",
+        "قرار دادن Case در صف ارسال انجام نشد.",
       );
     } finally {
-      setSubmitting(false);
+      setSubmitting(
+        false,
+      );
     }
   }
 
@@ -311,6 +465,7 @@ useEffect(() => {
             animate-spin
             text-sky-700
           "
+          size={28}
         />
       </div>
     );
@@ -325,6 +480,7 @@ useEffect(() => {
             bg-red-50
             p-4
             text-sm
+            leading-6
             text-red-700
           "
         >
@@ -335,6 +491,13 @@ useEffect(() => {
     );
   }
 
+  const progress =
+    requiredCount === 0
+      ? 0
+      : (completedRequired /
+          requiredCount) *
+        100;
+
   return (
     <div
       className="
@@ -343,6 +506,10 @@ useEffect(() => {
         pt-5
       "
     >
+      {/* ------------------------------------------------ */}
+      {/* Header */}
+      {/* ------------------------------------------------ */}
+
       <header>
         <div
           className="
@@ -354,6 +521,7 @@ useEffect(() => {
         >
           <button
             type="button"
+            aria-label="بازگشت"
             onClick={() =>
               router.back()
             }
@@ -367,10 +535,11 @@ useEffect(() => {
               border-slate-200
               bg-white
               text-slate-700
+              transition
+              active:scale-95
             "
           >
-            <ArrowLeft
-              className="rotate-180"
+            <ArrowRight
               size={19}
             />
           </button>
@@ -386,32 +555,46 @@ useEffect(() => {
               text-sky-700
             "
           >
-            مرحله ۲ از ۲
+            مرحله تصویربرداری
           </p>
 
-     <h1
-  className="
-    mt-1
-    text-2xl
-    font-bold
-    text-slate-950
-  "
->
-  تصویربرداری استاندارد
-</h1>
+          <h1
+            className="
+              mt-1
+              text-2xl
+              font-bold
+              text-slate-950
+            "
+          >
+            پروتکل تصویربرداری
+          </h1>
 
           <p
             className="
               mt-2
               text-sm
+              leading-7
               text-slate-500
+            "
+          >
+            برای هر پوزیشن یک تصویر
+            استاندارد ثبت کنید. کیفیت
+            فنی تصویر هنگام
+            تصویربرداری بررسی می‌شود.
+          </p>
+
+          <p
+            className="
+              mt-2
+              text-xs
+              text-slate-400
             "
           >
             Case:{" "}
             <span
               className="
                 font-bold
-                text-slate-700
+                text-slate-600
               "
             >
               {
@@ -422,14 +605,19 @@ useEffect(() => {
         </div>
       </header>
 
+      {/* ------------------------------------------------ */}
+      {/* Capture progress */}
+      {/* ------------------------------------------------ */}
+
       <section
         className="
           mt-6
-          rounded-2xl
+          rounded-3xl
           border
           border-slate-200
           bg-white
           p-4
+          shadow-sm
         "
       >
         <div
@@ -437,6 +625,7 @@ useEffect(() => {
             flex
             items-center
             justify-between
+            gap-4
           "
         >
           <div
@@ -447,24 +636,39 @@ useEffect(() => {
             "
           >
             <Images
-              size={19}
+              size={20}
               className="text-sky-700"
             />
 
-            <p
-              className="
-                text-sm
-                font-bold
-                text-slate-900
-              "
-            >
-              تصاویر الزامی
-            </p>
+            <div>
+              <p
+                className="
+                  text-sm
+                  font-bold
+                  text-slate-900
+                "
+              >
+                پوزیشن‌های الزامی
+              </p>
+
+              <p
+                className="
+                  mt-0.5
+                  text-[11px]
+                  text-slate-400
+                "
+              >
+                {
+                  CAPTURE_PROTOCOL.length
+                }{" "}
+                پوزیشن تعریف شده
+              </p>
+            </div>
           </div>
 
           <span
             className="
-              text-sm
+              text-base
               font-bold
               text-sky-700
             "
@@ -477,7 +681,7 @@ useEffect(() => {
 
         <div
           className="
-            mt-3
+            mt-4
             h-2
             overflow-hidden
             rounded-full
@@ -490,20 +694,43 @@ useEffect(() => {
               rounded-full
               bg-sky-600
               transition-all
+              duration-300
             "
             style={{
-              width: `${
-                requiredCount ===
-                0
-                  ? 0
-                  : (completedRequired /
-                      requiredCount) *
-                    100
-              }%`,
+              width: `${progress}%`,
             }}
           />
         </div>
+
+        {isComplete && (
+          <div
+            className="
+              mt-4
+              flex
+              items-center
+              gap-2
+              rounded-xl
+              bg-emerald-50
+              px-3
+              py-2.5
+              text-xs
+              font-medium
+              text-emerald-700
+            "
+          >
+            <CheckCircle2
+              size={17}
+            />
+
+            تمام تصاویر الزامی ثبت
+            شده‌اند.
+          </div>
+        )}
       </section>
+
+      {/* ------------------------------------------------ */}
+      {/* Capture positions */}
+      {/* ------------------------------------------------ */}
 
       <div
         className="
@@ -512,10 +739,21 @@ useEffect(() => {
         "
       >
         {CAPTURE_PROTOCOL.map(
-          (step) => (
+          (
+            step,
+            index,
+          ) => (
             <PhotoCard
-              key={step.kind}
+              key={
+                step.kind
+              }
               step={step}
+              positionIndex={
+                index + 1
+              }
+              totalPositions={
+                CAPTURE_PROTOCOL.length
+              }
               photoUrl={
                 photos[
                   step.kind
@@ -527,17 +765,21 @@ useEffect(() => {
                 submitting
               }
               onPhotoSelected={(
-                file,
+                image,
               ) =>
                 handlePhoto(
                   step.kind,
-                  file,
+                  image,
                 )
               }
             />
           ),
         )}
       </div>
+
+      {/* ------------------------------------------------ */}
+      {/* Saving state */}
+      {/* ------------------------------------------------ */}
 
       {savingKind && (
         <div
@@ -562,6 +804,10 @@ useEffect(() => {
           دستگاه...
         </div>
       )}
+
+      {/* ------------------------------------------------ */}
+      {/* Offline info */}
+      {/* ------------------------------------------------ */}
 
       <div
         className="
@@ -589,16 +835,21 @@ useEffect(() => {
             text-amber-800
           "
         >
-          تصاویر ابتدا در حافظه
-          محلی برنامه ذخیره می‌شوند؛
-          بنابراین برای ثبت تصاویر
+          تمام تصاویر ابتدا به‌صورت
+          محلی روی دستگاه ذخیره
+          می‌شوند. برای تصویربرداری
           نیازی به اتصال لحظه‌ای به
           اینترنت نیست.
         </p>
       </div>
 
+      {/* ------------------------------------------------ */}
+      {/* Error */}
+      {/* ------------------------------------------------ */}
+
       {error && (
         <div
+          role="alert"
           className="
             mt-4
             rounded-2xl
@@ -612,6 +863,10 @@ useEffect(() => {
           {error}
         </div>
       )}
+
+      {/* ------------------------------------------------ */}
+      {/* Complete */}
+      {/* ------------------------------------------------ */}
 
       <button
         type="button"
@@ -656,7 +911,7 @@ useEffect(() => {
 
         {submitting
           ? "در حال ذخیره..."
-          : "آماده برای تحلیل"}
+          : "تکمیل ثبت تصاویر"}
       </button>
     </div>
   );

@@ -11,7 +11,7 @@ import {
 
 import {
   ArrowRight,
-  ChevronDown,
+  Check,
   ClipboardPlus,
 } from "lucide-react";
 
@@ -24,12 +24,39 @@ import {
 } from "@/lib/db/database";
 
 import type {
-  NeckMobility,
+  BiologicalSex,
+  HeadRotationStatus,
 } from "@/lib/domain/types";
 
 import {
   parseOptionalNumber,
 } from "@/lib/utils/numbers";
+
+type FormField =
+  | "fullName"
+  | "age"
+  | "sex"
+  | "height"
+  | "weight"
+  | "headRotation";
+
+type FieldErrors =
+  Partial<
+    Record<
+      FormField,
+      string
+    >
+  >;
+
+const FIELD_ORDER:
+  FormField[] = [
+    "fullName",
+    "age",
+    "sex",
+    "height",
+    "weight",
+    "headRotation",
+  ];
 
 export default function NewCasePage() {
   const router =
@@ -38,42 +65,127 @@ export default function NewCasePage() {
   const [
     submitting,
     setSubmitting,
-  ] = useState(false);
+  ] =
+    useState(false);
 
   const [
     error,
     setError,
-  ] = useState<string | null>(
-    null,
-  );
-
-  const [
-    caseCode,
-    setCaseCode,
-  ] = useState("");
-
-  const [
-    height,
-    setHeight,
-  ] = useState("");
-
-  const [
-    weight,
-    setWeight,
-  ] = useState("");
-
-  const [
-    neckMobility,
-    setNeckMobility,
   ] =
-    useState<NeckMobility>(
+    useState<
+      string | null
+    >(null);
+
+  const [
+    fieldErrors,
+    setFieldErrors,
+  ] =
+    useState<FieldErrors>(
+      {},
+    );
+
+  const [
+    fullName,
+    setFullName,
+  ] =
+    useState("");
+
+  const [
+    age,
+    setAge,
+  ] =
+    useState("");
+
+  const [
+    sex,
+    setSex,
+  ] =
+    useState<BiologicalSex>(
       "unknown",
     );
 
   const [
-    notes,
-    setNotes,
-  ] = useState("");
+    height,
+    setHeight,
+  ] =
+    useState("");
+
+  const [
+    weight,
+    setWeight,
+  ] =
+    useState("");
+
+  const [
+    headRotationStatus,
+    setHeadRotationStatus,
+  ] =
+    useState<
+      HeadRotationStatus | null
+    >(null);
+
+  function clearFieldError(
+    field:
+      FormField,
+  ) {
+    setFieldErrors(
+      (current) => {
+        if (
+          !current[field]
+        ) {
+          return current;
+        }
+
+        const next = {
+          ...current,
+        };
+
+        delete next[
+          field
+        ];
+
+        return next;
+      },
+    );
+
+    setError(null);
+  }
+
+  function focusFirstError(
+    errors:
+      FieldErrors,
+  ) {
+    const firstField =
+      FIELD_ORDER.find(
+        (field) =>
+          Boolean(
+            errors[field],
+          ),
+      );
+
+    if (!firstField) {
+      return;
+    }
+
+    window.requestAnimationFrame(
+      () => {
+        const element =
+          document.getElementById(
+            firstField,
+          );
+
+        element?.scrollIntoView({
+          behavior:
+            "smooth",
+
+          block:
+            "center",
+        });
+
+        element?.focus();
+      },
+    );
+  }
 
   async function handleSubmit(
     event:
@@ -83,15 +195,47 @@ export default function NewCasePage() {
 
     setError(null);
 
-    const trimmedCaseCode =
-      caseCode.trim();
+    const errors:
+      FieldErrors = {};
 
-    if (!trimmedCaseCode) {
-      setError(
-        "کد Case را وارد کنید.",
+    const normalizedFullName =
+      fullName
+        .replace(
+          /\s+/g,
+          " ",
+        )
+        .trim();
+
+    if (
+      !normalizedFullName
+    ) {
+      errors.fullName =
+        "نام و نام خانوادگی بیمار را وارد کنید.";
+    }
+
+    const ageYears =
+      parseOptionalNumber(
+        age,
       );
 
-      return;
+    if (!age.trim()) {
+      errors.age =
+        "سن بیمار را وارد کنید.";
+    } else if (
+      ageYears ===
+        undefined ||
+      ageYears <= 0 ||
+      ageYears > 120
+    ) {
+      errors.age =
+        "سن واردشده معتبر نیست.";
+    }
+
+    if (
+      sex === "unknown"
+    ) {
+      errors.sex =
+        "جنسیت بیمار را انتخاب کنید.";
     }
 
     const heightCm =
@@ -99,73 +243,303 @@ export default function NewCasePage() {
         height,
       );
 
+    if (
+      !height.trim()
+    ) {
+      errors.height =
+        "قد بیمار را وارد کنید.";
+    } else if (
+      heightCm ===
+        undefined ||
+      heightCm <= 0 ||
+      heightCm > 250
+    ) {
+      errors.height =
+        "قد واردشده معتبر نیست.";
+    }
+
     const weightKg =
       parseOptionalNumber(
         weight,
       );
 
     if (
-      height &&
-      (heightCm === undefined ||
-        heightCm <= 0)
+      !weight.trim()
     ) {
+      errors.weight =
+        "وزن بیمار را وارد کنید.";
+    } else if (
+      weightKg ===
+        undefined ||
+      weightKg <= 0 ||
+      weightKg > 500
+    ) {
+      errors.weight =
+        "وزن واردشده معتبر نیست.";
+    }
+
+    if (
+      !headRotationStatus
+    ) {
+      errors.headRotation =
+        "وضعیت چرخش سر را مشخص کنید.";
+    }
+
+    if (
+      Object.keys(
+        errors,
+      ).length > 0
+    ) {
+      setFieldErrors(
+        errors,
+      );
+
       setError(
-        "مقدار قد معتبر نیست.",
+        "برای ورود به مرحله تصویربرداری، همه اطلاعات الزامی را تکمیل کنید.",
+      );
+
+      focusFirstError(
+        errors,
       );
 
       return;
     }
 
+    /*
+     * بعد از validation بالا این مقادیر
+     * حتماً وجود دارند.
+     */
     if (
-      weight &&
-      (weightKg === undefined ||
-        weightKg <= 0)
+      ageYears ===
+        undefined ||
+      heightCm ===
+        undefined ||
+      weightKg ===
+        undefined ||
+      !headRotationStatus
     ) {
-      setError(
-        "مقدار وزن معتبر نیست.",
-      );
-
       return;
     }
 
     try {
-      setSubmitting(true);
+      setSubmitting(
+        true,
+      );
 
       const airwayCase =
         await createCase({
-          caseCode:
-            trimmedCaseCode,
+          fullName:
+            normalizedFullName,
 
-          heightCm,
+          clinical: {
+            fullName:
+              normalizedFullName,
 
-          weightKg,
+            ageYears,
 
-          neckMobility,
+            sex,
 
-          notes:
-            notes.trim() ||
-            undefined,
+            heightCm,
+
+            weightKg,
+
+            neckMobility:
+              "unknown",
+
+            headRotationStatus,
+
+            neckRotationDegrees:
+              undefined,
+
+            /*
+             * از UI حذف شده‌اند.
+             */
+            mallampatiClass:
+              "unknown",
+
+            upperLipBiteClass:
+              "unknown",
+
+            interincisorDistanceMm:
+              undefined,
+
+            thyromentalDistanceMm:
+              undefined,
+
+            sternomentalDistanceMm:
+              undefined,
+
+            hyomentalDistanceMm:
+              undefined,
+
+            neckCircumferenceMm:
+              undefined,
+
+            retrognathia:
+              "unknown",
+
+            prominentUpperIncisors:
+              "unknown",
+
+            priorDifficultIntubation:
+              "unknown",
+          },
         });
 
       router.push(
         `/cases/${airwayCase.id}/capture`,
       );
-    } catch (error) {
-      console.error(error);
-
-      setError(
-        "ذخیره اطلاعات انجام نشد. دوباره تلاش کنید.",
+    } catch (
+      caughtError
+    ) {
+      console.error(
+        caughtError,
       );
+
+      const message =
+        caughtError instanceof
+        Error
+          ? caughtError.message
+          : "";
+
+      switch (
+        message
+      ) {
+        case "PATIENT_NAME_REQUIRED":
+          setFieldErrors({
+            fullName:
+              "نام و نام خانوادگی بیمار را وارد کنید.",
+          });
+
+          setError(
+            "نام بیمار الزامی است.",
+          );
+          break;
+
+        case "AGE_REQUIRED":
+        case "INVALID_AGE":
+          setFieldErrors({
+            age:
+              "سن بیمار را به‌درستی وارد کنید.",
+          });
+
+          setError(
+            "اطلاعات بیمار کامل نیست.",
+          );
+          break;
+
+        case "SEX_REQUIRED":
+          setFieldErrors({
+            sex:
+              "جنسیت بیمار را انتخاب کنید.",
+          });
+
+          setError(
+            "اطلاعات بیمار کامل نیست.",
+          );
+          break;
+
+        case "HEIGHT_REQUIRED":
+        case "INVALID_HEIGHT":
+          setFieldErrors({
+            height:
+              "قد بیمار را به‌درستی وارد کنید.",
+          });
+
+          setError(
+            "اطلاعات بیمار کامل نیست.",
+          );
+          break;
+
+        case "WEIGHT_REQUIRED":
+        case "INVALID_WEIGHT":
+          setFieldErrors({
+            weight:
+              "وزن بیمار را به‌درستی وارد کنید.",
+          });
+
+          setError(
+            "اطلاعات بیمار کامل نیست.",
+          );
+          break;
+
+        case "HEAD_ROTATION_REQUIRED":
+          setFieldErrors({
+            headRotation:
+              "وضعیت چرخش سر را مشخص کنید.",
+          });
+
+          setError(
+            "اطلاعات بیمار کامل نیست.",
+          );
+          break;
+
+        case "OPERATOR_PROFILE_REQUIRED":
+          setError(
+            "مشخصات پزشک پیدا نشد. صفحه را دوباره بارگذاری کنید.",
+          );
+          break;
+
+        default:
+          setError(
+            "ذخیره اطلاعات بیمار انجام نشد. دوباره تلاش کنید.",
+          );
+      }
     } finally {
-      setSubmitting(false);
+      setSubmitting(
+        false,
+      );
     }
+  }
+
+  const fieldClassName = `
+    h-14
+    w-full
+    rounded-2xl
+    border
+    bg-white
+    px-4
+    text-base
+    text-slate-900
+    shadow-sm
+    outline-none
+    transition
+    placeholder:text-slate-400
+    focus:ring-4
+    disabled:cursor-not-allowed
+    disabled:bg-slate-100
+    disabled:opacity-60
+  `;
+
+  const labelClassName = `
+    mb-2
+    flex
+    min-h-6
+    items-end
+    text-sm
+    font-medium
+    text-slate-700
+  `;
+
+  function getFieldClass(
+    invalid:
+      boolean,
+  ) {
+    return `
+      ${fieldClassName}
+      ${
+        invalid
+          ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+          : "border-slate-200 focus:border-sky-500 focus:ring-sky-100"
+      }
+    `;
   }
 
   return (
     <div
       className="
         px-4
-        pb-8
+        pb-10
         pt-5
       "
     >
@@ -203,7 +577,7 @@ export default function NewCasePage() {
               text-sky-700
             "
           >
-            مرحله ۱ از ۲
+            مرحله ۱
           </p>
 
           <h1
@@ -214,21 +588,20 @@ export default function NewCasePage() {
               text-slate-950
             "
           >
-            مشخصات Case
+            اطلاعات بیمار
           </h1>
 
           <p
             className="
               mt-2
-              max-w-sm
               text-sm
               leading-7
               text-slate-500
             "
           >
-            اطلاعات اولیه را ثبت کنید.
-            تصاویر در مرحله بعد گرفته
-            خواهند شد.
+            برای ورود به مرحله
+            تصویربرداری، تمام اطلاعات
+            این صفحه باید تکمیل شوند.
           </p>
         </div>
       </header>
@@ -237,102 +610,466 @@ export default function NewCasePage() {
         onSubmit={
           handleSubmit
         }
+        noValidate
         className="
           mt-7
           space-y-6
         "
       >
-        <section
-          className="
-            rounded-3xl
-            border
-            border-slate-200
-            bg-white
-            p-4
-          "
-        >
-          <div>
-            <label
-              htmlFor="caseCode"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
-            >
-              کد Case
-            </label>
-
-            <input
-              id="caseCode"
-              value={caseCode}
-              disabled={
-                submitting
-              }
-              onChange={(
-                event,
-              ) =>
-                setCaseCode(
-                  event.target
-                    .value,
-                )
-              }
-              placeholder="مثلاً OR-2026-001"
-              autoComplete="off"
-              className="
-                min-h-14
-                w-full
-                rounded-2xl
-                border
-                border-slate-200
-                bg-white
-                px-4
-                text-base
-                text-slate-900
-                shadow-sm
-                transition
-                placeholder:text-slate-400
-                focus:border-sky-500
-                focus:ring-4
-                focus:ring-sky-100
-              "
-            />
-
-            <p
-              className="
-                mt-2
-                text-xs
-                leading-6
-                text-slate-500
-              "
-            >
-              فعلاً اطلاعات هویتی
-              مستقیم بیمار مانند نام
-              و کد ملی وارد نشود.
-            </p>
-          </div>
-        </section>
-
-        <section
-          className="
-            rounded-3xl
-            border
-            border-slate-200
-            bg-white
-            p-4
-          "
-        >
+        <section>
           <h2
             className="
-              text-sm
+              mb-4
+              text-base
               font-bold
               text-slate-900
             "
           >
-            اطلاعات فیزیکی
+            اطلاعات پایه
           </h2>
+
+          <div
+            className="
+              grid
+              grid-cols-2
+              gap-x-3
+              gap-y-4
+            "
+          >
+            {/* Patient name */}
+
+            <div
+              className="
+                col-span-2
+                min-w-0
+              "
+            >
+              <label
+                htmlFor="fullName"
+                className={
+                  labelClassName
+                }
+              >
+                نام و نام خانوادگی بیمار
+
+                <span
+                  className="
+                    mr-1
+                    text-red-500
+                  "
+                >
+                  *
+                </span>
+              </label>
+
+              <input
+                id="fullName"
+                type="text"
+                value={
+                  fullName
+                }
+                disabled={
+                  submitting
+                }
+                autoComplete="off"
+                aria-invalid={
+                  Boolean(
+                    fieldErrors.fullName,
+                  )
+                }
+                aria-describedby={
+                  fieldErrors.fullName
+                    ? "fullName-error"
+                    : undefined
+                }
+                onChange={(
+                  event,
+                ) => {
+                  setFullName(
+                    event.target
+                      .value,
+                  );
+
+                  clearFieldError(
+                    "fullName",
+                  );
+                }}
+                placeholder="نام و نام خانوادگی"
+                className={
+                  getFieldClass(
+                    Boolean(
+                      fieldErrors.fullName,
+                    ),
+                  )
+                }
+              />
+
+              {fieldErrors.fullName && (
+                <p
+                  id="fullName-error"
+                  className="
+                    mt-2
+                    text-xs
+                    font-medium
+                    text-red-600
+                  "
+                >
+                  {
+                    fieldErrors.fullName
+                  }
+                </p>
+              )}
+            </div>
+
+            {/* Age */}
+
+            <div className="min-w-0">
+              <label
+                htmlFor="age"
+                className={
+                  labelClassName
+                }
+              >
+                سن
+
+                <span
+                  className="
+                    mr-1
+                    text-red-500
+                  "
+                >
+                  *
+                </span>
+              </label>
+
+              <NumericInput
+                id="age"
+                value={age}
+                onChange={(
+                  value,
+                ) => {
+                  setAge(
+                    value,
+                  );
+
+                  clearFieldError(
+                    "age",
+                  );
+                }}
+                placeholder="35"
+                unit="سال"
+                disabled={
+                  submitting
+                }
+                required
+                invalid={
+                  Boolean(
+                    fieldErrors.age,
+                  )
+                }
+                ariaDescribedBy={
+                  fieldErrors.age
+                    ? "age-error"
+                    : undefined
+                }
+              />
+
+              {fieldErrors.age && (
+                <p
+                  id="age-error"
+                  className="
+                    mt-2
+                    text-xs
+                    font-medium
+                    text-red-600
+                  "
+                >
+                  {
+                    fieldErrors.age
+                  }
+                </p>
+              )}
+            </div>
+
+            {/* Sex */}
+
+            <div className="min-w-0">
+              <label
+                htmlFor="sex"
+                className={
+                  labelClassName
+                }
+              >
+                جنسیت
+
+                <span
+                  className="
+                    mr-1
+                    text-red-500
+                  "
+                >
+                  *
+                </span>
+              </label>
+
+              <select
+                id="sex"
+                value={sex}
+                disabled={
+                  submitting
+                }
+                aria-invalid={
+                  Boolean(
+                    fieldErrors.sex,
+                  )
+                }
+                aria-describedby={
+                  fieldErrors.sex
+                    ? "sex-error"
+                    : undefined
+                }
+                onChange={(
+                  event,
+                ) => {
+                  setSex(
+                    event.target
+                      .value as BiologicalSex,
+                  );
+
+                  clearFieldError(
+                    "sex",
+                  );
+                }}
+                className={
+                  getFieldClass(
+                    Boolean(
+                      fieldErrors.sex,
+                    ),
+                  )
+                }
+              >
+                <option value="unknown">
+                  انتخاب کنید
+                </option>
+
+                <option value="male">
+                  مرد
+                </option>
+
+                <option value="female">
+                  زن
+                </option>
+              </select>
+
+              {fieldErrors.sex && (
+                <p
+                  id="sex-error"
+                  className="
+                    mt-2
+                    text-xs
+                    font-medium
+                    text-red-600
+                  "
+                >
+                  {
+                    fieldErrors.sex
+                  }
+                </p>
+              )}
+            </div>
+
+            {/* Height */}
+
+            <div className="min-w-0">
+              <label
+                htmlFor="height"
+                className={
+                  labelClassName
+                }
+              >
+                قد
+
+                <span
+                  className="
+                    mr-1
+                    text-red-500
+                  "
+                >
+                  *
+                </span>
+              </label>
+
+              <NumericInput
+                id="height"
+                value={
+                  height
+                }
+                onChange={(
+                  value,
+                ) => {
+                  setHeight(
+                    value,
+                  );
+
+                  clearFieldError(
+                    "height",
+                  );
+                }}
+                placeholder="175"
+                unit="cm"
+                disabled={
+                  submitting
+                }
+                required
+                invalid={
+                  Boolean(
+                    fieldErrors.height,
+                  )
+                }
+                ariaDescribedBy={
+                  fieldErrors.height
+                    ? "height-error"
+                    : undefined
+                }
+              />
+
+              {fieldErrors.height && (
+                <p
+                  id="height-error"
+                  className="
+                    mt-2
+                    text-xs
+                    font-medium
+                    text-red-600
+                  "
+                >
+                  {
+                    fieldErrors.height
+                  }
+                </p>
+              )}
+            </div>
+
+            {/* Weight */}
+
+            <div className="min-w-0">
+              <label
+                htmlFor="weight"
+                className={
+                  labelClassName
+                }
+              >
+                وزن
+
+                <span
+                  className="
+                    mr-1
+                    text-red-500
+                  "
+                >
+                  *
+                </span>
+              </label>
+
+              <NumericInput
+                id="weight"
+                value={
+                  weight
+                }
+                onChange={(
+                  value,
+                ) => {
+                  setWeight(
+                    value,
+                  );
+
+                  clearFieldError(
+                    "weight",
+                  );
+                }}
+                placeholder="75"
+                unit="kg"
+                disabled={
+                  submitting
+                }
+                required
+                invalid={
+                  Boolean(
+                    fieldErrors.weight,
+                  )
+                }
+                ariaDescribedBy={
+                  fieldErrors.weight
+                    ? "weight-error"
+                    : undefined
+                }
+              />
+
+              {fieldErrors.weight && (
+                <p
+                  id="weight-error"
+                  className="
+                    mt-2
+                    text-xs
+                    font-medium
+                    text-red-600
+                  "
+                >
+                  {
+                    fieldErrors.weight
+                  }
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Head rotation */}
+
+        <section
+          id="headRotation"
+          tabIndex={-1}
+          className="
+            outline-none
+          "
+        >
+          <div
+            className="
+              flex
+              items-center
+              gap-1
+            "
+          >
+            <h2
+              className="
+                text-sm
+                font-bold
+                text-slate-900
+              "
+            >
+              وضعیت چرخش سر
+            </h2>
+
+            <span
+              className="
+                text-red-500
+              "
+            >
+              *
+            </span>
+          </div>
+
+          <p
+            className="
+              mt-2
+              text-xs
+              leading-6
+              text-slate-500
+            "
+          >
+            یکی از دو وضعیت زیر را
+            حتماً مشخص کنید.
+          </p>
 
           <div
             className="
@@ -342,207 +1079,113 @@ export default function NewCasePage() {
               gap-3
             "
           >
-            <div>
-              <label
-                htmlFor="height"
-                className="
-                  mb-2
-                  block
-                  text-sm
-                  font-medium
-                  text-slate-700
-                "
-              >
-                قد
-              </label>
-
-              <NumericInput
-                id="height"
-                value={height}
-                onChange={
-                  setHeight
-                }
-                placeholder="175"
-                unit="cm"
-                disabled={
-                  submitting
-                }
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="weight"
-                className="
-                  mb-2
-                  block
-                  text-sm
-                  font-medium
-                  text-slate-700
-                "
-              >
-                وزن
-              </label>
-
-              <NumericInput
-                id="weight"
-                value={weight}
-                onChange={
-                  setWeight
-                }
-                placeholder="75"
-                unit="kg"
-                disabled={
-                  submitting
-                }
-              />
-            </div>
-          </div>
-
-          <p
-            className="
-              mt-3
-              text-xs
-              leading-6
-              text-slate-500
-            "
-          >
-            امکان ورود عدد با
-            صفحه‌کلید فارسی یا انگلیسی
-            وجود دارد.
-          </p>
-        </section>
-
-        <section
-          className="
-            rounded-3xl
-            border
-            border-slate-200
-            bg-white
-            p-4
-          "
-        >
-          <div>
-            <label
-              htmlFor="neckMobility"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
-            >
-              وضعیت حرکت گردن
-            </label>
-
-            <div className="relative">
-              <select
-                id="neckMobility"
-                value={
-                  neckMobility
-                }
-                disabled={
-                  submitting
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setNeckMobility(
-                    event.target
-                      .value as NeckMobility,
-                  )
-                }
-                className="
-                  min-h-14
-                  w-full
-                  appearance-none
-                  rounded-2xl
-                  border
-                  border-slate-200
-                  bg-white
-                  px-4
-                  pl-12
-                  text-sm
-                  text-slate-900
-                  focus:border-sky-500
-                  focus:ring-4
-                  focus:ring-sky-100
-                "
-              >
-                <option value="unknown">
-                  مشخص نشده
-                </option>
-
-                <option value="normal">
-                  طبیعی
-                </option>
-
-                <option value="reduced">
-                  محدود
-                </option>
-              </select>
-
-              <ChevronDown
-                size={18}
-                className="
-                  pointer-events-none
-                  absolute
-                  left-4
-                  top-1/2
-                  -translate-y-1/2
-                  text-slate-400
-                "
-              />
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <label
-              htmlFor="notes"
-              className="
-                mb-2
-                block
-                text-sm
-                font-bold
-                text-slate-800
-              "
-            >
-              یادداشت
-            </label>
-
-            <textarea
-              id="notes"
-              rows={4}
-              value={notes}
+            <button
+              type="button"
               disabled={
                 submitting
               }
-              onChange={(
-                event,
-              ) =>
-                setNotes(
-                  event.target
-                    .value,
-                )
-              }
-              placeholder="یادداشت اختیاری..."
-              className="
-                w-full
-                resize-none
+              onClick={() => {
+                setHeadRotationStatus(
+                  "complete",
+                );
+
+                clearFieldError(
+                  "headRotation",
+                );
+              }}
+              className={`
+                flex
+                min-h-20
+                items-center
+                justify-center
+                gap-2
                 rounded-2xl
                 border
-                border-slate-200
-                bg-white
-                p-4
+                px-3
                 text-sm
-                leading-7
-                focus:border-sky-500
-                focus:ring-4
-                focus:ring-sky-100
-              "
-            />
+                font-bold
+                transition
+                ${
+                  headRotationStatus ===
+                  "complete"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-100"
+                    : fieldErrors.headRotation
+                      ? "border-red-300 bg-red-50/40 text-slate-700"
+                      : "border-slate-200 bg-white text-slate-700"
+                }
+              `}
+            >
+              {headRotationStatus ===
+                "complete" && (
+                <Check
+                  size={18}
+                />
+              )}
+
+              چرخش کامل
+            </button>
+
+            <button
+              type="button"
+              disabled={
+                submitting
+              }
+              onClick={() => {
+                setHeadRotationStatus(
+                  "incomplete",
+                );
+
+                clearFieldError(
+                  "headRotation",
+                );
+              }}
+              className={`
+                flex
+                min-h-20
+                items-center
+                justify-center
+                gap-2
+                rounded-2xl
+                border
+                px-3
+                text-sm
+                font-bold
+                transition
+                ${
+                  headRotationStatus ===
+                  "incomplete"
+                    ? "border-amber-500 bg-amber-50 text-amber-800 ring-2 ring-amber-100"
+                    : fieldErrors.headRotation
+                      ? "border-red-300 bg-red-50/40 text-slate-700"
+                      : "border-slate-200 bg-white text-slate-700"
+                }
+              `}
+            >
+              {headRotationStatus ===
+                "incomplete" && (
+                <Check
+                  size={18}
+                />
+              )}
+
+              چرخش ناکامل
+            </button>
           </div>
+
+          {fieldErrors.headRotation && (
+            <p
+              className="
+                mt-2
+                text-xs
+                font-medium
+                text-red-600
+              "
+            >
+              {
+                fieldErrors.headRotation
+              }
+            </p>
+          )}
         </section>
 
         {error && (
@@ -550,10 +1193,13 @@ export default function NewCasePage() {
             role="alert"
             className="
               rounded-2xl
+              border
+              border-red-100
               bg-red-50
               p-4
               text-sm
-              leading-6
+              font-medium
+              leading-7
               text-red-700
             "
           >
@@ -568,7 +1214,7 @@ export default function NewCasePage() {
           }
           className="
             flex
-            min-h-14
+            h-14
             w-full
             items-center
             justify-center
@@ -592,7 +1238,7 @@ export default function NewCasePage() {
 
           {submitting
             ? "در حال ذخیره..."
-            : "ذخیره و رفتن به تصویربرداری"}
+            : "ذخیره و ادامه تصویربرداری"}
         </button>
       </form>
     </div>
