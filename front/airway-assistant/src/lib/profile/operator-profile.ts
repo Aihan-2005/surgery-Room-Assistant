@@ -341,12 +341,7 @@ export async function registerOperator(
       normalizedFullName,
     );
 
-  /**
-   * Backend برای Device ID تکراری 409 می‌دهد
-   * چون token قبلی را مجدداً صادر نمی‌کند.
-   *
-   * در این حالت UUID تازه می‌سازیم.
-   */
+    
   if (
     registration.response.status ===
     409
@@ -437,10 +432,8 @@ export async function registerOperator(
     profile,
   );
 
-  /**
-   * بعد از migration موفق دیگر به profile v1
-   * احتیاجی نداریم.
-   */
+
+  
   window.localStorage.removeItem(
     LEGACY_STORAGE_KEY,
   );
@@ -448,9 +441,7 @@ export async function registerOperator(
   return profile;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Clear profile                                                              */
-/* -------------------------------------------------------------------------- */
+
 
 export function clearOperatorProfile() {
   if (
