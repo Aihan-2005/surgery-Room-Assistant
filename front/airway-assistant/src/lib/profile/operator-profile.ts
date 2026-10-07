@@ -331,12 +331,7 @@ export async function registerOperator(
       "OPERATOR_NAME_REQUIRED",
     );
   }
-
-  /*
-   * Device ID مستقل از نام پزشک است.
-   *
-   * دو پزشک با نام مشابه مشکلی ایجاد نمی‌کنند.
-   */
+ 
   let deviceId =
     crypto.randomUUID();
 
