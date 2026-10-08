@@ -16,7 +16,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-import { NetworkPill } from "@/components/app-shell/network-pill";
+import {
+  NetworkPill,
+} from "@/components/app-shell/network-pill";
 
 import {
   getAllCases,
@@ -48,35 +50,75 @@ function getStatusLabel(
   }
 }
 
+function getPatientName(
+  airwayCase:
+    AirwayCase,
+) {
+  const fullName =
+    airwayCase
+      .clinical
+      .fullName
+      ?.trim();
+
+  if (fullName) {
+    return fullName;
+  }
+
+  /*
+   * برای Caseهای قدیمی که fullName
+   * نداشته‌اند، Case ID نمایش داده نشود.
+   */
+  return "نام بیمار ثبت نشده";
+}
+
 export default function HomePage() {
-  const [cases, setCases] =
-    useState<AirwayCase[]>(
-      [],
-    );
+  const [
+    cases,
+    setCases,
+  ] =
+    useState<
+      AirwayCase[]
+    >([]);
 
   const [
     loading,
     setLoading,
-  ] = useState(true);
+  ] =
+    useState(true);
 
   const loadCases =
-    useCallback(async () => {
-      try {
-        const result =
-          await getAllCases();
+    useCallback(
+      async () => {
+        try {
+          const result =
+            await getAllCases();
 
-        setCases(result);
-      } finally {
-        setLoading(false);
-      }
-    }, []);
+          setCases(
+            result,
+          );
+        } catch (
+          error
+        ) {
+          console.error(
+            "Failed to load cases:",
+            error,
+          );
+        } finally {
+          setLoading(
+            false,
+          );
+        }
+      },
+      [],
+    );
 
   useEffect(() => {
-    loadCases();
+    void loadCases();
 
-    const handleFocus = () => {
-      loadCases();
-    };
+    const handleFocus =
+      () => {
+        void loadCases();
+      };
 
     window.addEventListener(
       "focus",
@@ -89,10 +131,18 @@ export default function HomePage() {
         handleFocus,
       );
     };
-  }, [loadCases]);
+  }, [
+    loadCases,
+  ]);
 
   return (
-    <div className="px-4 pb-8 pt-5">
+    <div
+      className="
+        px-4
+        pb-8
+        pt-5
+      "
+    >
       <header
         className="
           flex
@@ -112,22 +162,23 @@ export default function HomePage() {
             Airway Assistant
           </p>
 
-        <h1
-  className="
-    mt-1
-    text-2xl
-    font-bold
-    tracking-tight
-    text-slate-950
-  "
->
-  دستیار تصویربرداری راه هوایی
-
-  </h1>
+          <h1
+            className="
+              mt-1
+              text-2xl
+              font-bold
+              tracking-tight
+              text-slate-950
+            "
+          >
+            دستیار تصویربرداری راه هوایی
+          </h1>
         </div>
 
         <NetworkPill />
       </header>
+
+      {/* New assessment */}
 
       <section
         className="
@@ -150,7 +201,9 @@ export default function HomePage() {
             bg-white/15
           "
         >
-          <Camera size={25} />
+          <Camera
+            size={25}
+          />
         </div>
 
         <h2
@@ -171,9 +224,9 @@ export default function HomePage() {
             text-sky-100
           "
         >
-          اطلاعات اولیه را وارد
-          کنید و تصاویر استاندارد
-          بیمار را ثبت کنید.
+          اطلاعات اولیه را وارد کنید
+          و تصاویر استاندارد بیمار را
+          ثبت کنید.
         </p>
 
         <Link
@@ -206,6 +259,8 @@ export default function HomePage() {
         </Link>
       </section>
 
+      {/* Features */}
+
       <section
         className="
           mt-4
@@ -224,7 +279,9 @@ export default function HomePage() {
           "
         >
           <ShieldCheck
-            className="text-emerald-600"
+            className="
+              text-emerald-600
+            "
             size={22}
           />
 
@@ -236,7 +293,7 @@ export default function HomePage() {
               text-slate-900
             "
           >
-            ذخیره محلی
+            ذخیره امن
           </p>
 
           <p
@@ -247,8 +304,9 @@ export default function HomePage() {
               text-slate-500
             "
           >
-            تصاویر ابتدا روی
-            دستگاه ذخیره می‌شوند.
+            اطلاعات و تصاویر ابتدا
+            روی همین دستگاه ذخیره
+            می‌شوند.
           </p>
         </div>
 
@@ -262,7 +320,9 @@ export default function HomePage() {
           "
         >
           <Clock3
-            className="text-sky-600"
+            className="
+              text-sky-600
+            "
             size={22}
           />
 
@@ -274,7 +334,7 @@ export default function HomePage() {
               text-slate-900
             "
           >
-            Offline-first
+            قابل استفاده بدون اینترنت
           </p>
 
           <p
@@ -286,12 +346,16 @@ export default function HomePage() {
             "
           >
             قطع اینترنت مانع ثبت
-            اطلاعات نمی‌شود.
+            اطلاعات و تصاویر نمی‌شود.
           </p>
         </div>
       </section>
 
-      <section className="mt-8">
+      {/* Recent assessments */}
+
+      <section
+        className="mt-8"
+      >
         <div
           className="
             flex
@@ -340,7 +404,8 @@ export default function HomePage() {
         )}
 
         {!loading &&
-          cases.length === 0 && (
+          cases.length ===
+            0 && (
             <div
               className="
                 mt-4
@@ -372,15 +437,16 @@ export default function HomePage() {
                   text-slate-500
                 "
               >
-                اولین Case را ایجاد
-                کنید و تصاویر بیمار
-                را ثبت کنید.
+                اولین ارزیابی را
+                ایجاد کنید و تصاویر
+                بیمار را ثبت کنید.
               </p>
             </div>
           )}
 
         {!loading &&
-          cases.length > 0 && (
+          cases.length >
+            0 && (
             <div
               className="
                 mt-4
@@ -388,9 +454,14 @@ export default function HomePage() {
               "
             >
               {cases
-                .slice(0, 5)
+                .slice(
+                  0,
+                  5,
+                )
                 .map(
-                  (airwayCase) => (
+                  (
+                    airwayCase,
+                  ) => (
                     <Link
                       key={
                         airwayCase.id
@@ -415,17 +486,23 @@ export default function HomePage() {
                           gap-3
                         "
                       >
-                        <div>
+                        <div
+                          className="
+                            min-w-0
+                          "
+                        >
+                          {/* نام بیمار به‌جای Case ID */}
                           <p
                             className="
+                              truncate
                               text-sm
                               font-bold
                               text-slate-900
                             "
                           >
-                            {
-                              airwayCase.caseCode
-                            }
+                            {getPatientName(
+                              airwayCase,
+                            )}
                           </p>
 
                           <p
@@ -440,6 +517,7 @@ export default function HomePage() {
                               {
                                 dateStyle:
                                   "medium",
+
                                 timeStyle:
                                   "short",
                               },
@@ -453,6 +531,7 @@ export default function HomePage() {
 
                         <span
                           className="
+                            shrink-0
                             rounded-full
                             bg-slate-100
                             px-3

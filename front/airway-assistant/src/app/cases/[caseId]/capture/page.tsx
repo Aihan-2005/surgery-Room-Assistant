@@ -17,7 +17,6 @@ import {
   ArrowRight,
   CheckCircle2,
   CloudOff,
-  Images,
   LoaderCircle,
 } from "lucide-react";
 
@@ -227,7 +226,7 @@ export default function CapturePage() {
             );
 
             setError(
-              "Case موردنظر پیدا نشد.",
+              "ارزیابی موردنظر پیدا نشد.",
             );
 
             return;
@@ -238,8 +237,7 @@ export default function CapturePage() {
           );
 
           /*
-           * URLهای Preview قدیمی در صورت reload داخلی
-           * آزاد شوند.
+           * Previewهای قبلی آزاد شوند.
            */
           for (
             const url of
@@ -330,7 +328,7 @@ export default function CapturePage() {
           );
 
           setError(
-            "خواندن اطلاعات Case انجام نشد.",
+            "خواندن اطلاعات ارزیابی انجام نشد.",
           );
         } finally {
           setLoading(
@@ -366,7 +364,7 @@ export default function CapturePage() {
   }, []);
 
   /* ---------------------------------------------------------------------- */
-  /* Counts                                                                 */
+  /* Photo count                                                            */
   /* ---------------------------------------------------------------------- */
 
   const totalCapturedPhotos =
@@ -391,29 +389,6 @@ export default function CapturePage() {
       ],
     );
 
-  const photographedPositions =
-    useMemo(
-      () =>
-        Object.values(
-          photos,
-        ).filter(
-          (
-            items,
-          ) =>
-            (
-              items?.length ??
-              0
-            ) >
-            0,
-        ).length,
-      [
-        photos,
-      ],
-    );
-
-  /*
-   * فقط یک عکس در کل Case کافی است.
-   */
   const isReady =
     totalCapturedPhotos >=
     MIN_TOTAL_PHOTOS;
@@ -437,7 +412,7 @@ export default function CapturePage() {
     submitting;
 
   /* ---------------------------------------------------------------------- */
-  /* Save / replace                                                         */
+  /* Save / replace photo                                                   */
   /* ---------------------------------------------------------------------- */
 
   async function handlePhoto(
@@ -455,7 +430,7 @@ export default function CapturePage() {
       captureLocked
     ) {
       setError(
-        "تصویربرداری این Case قبلاً تکمیل شده است.",
+        "تصویربرداری این ارزیابی قبلاً تکمیل شده است.",
       );
 
       return;
@@ -617,7 +592,7 @@ export default function CapturePage() {
   }
 
   /* ---------------------------------------------------------------------- */
-  /* Delete                                                                 */
+  /* Delete photo                                                           */
   /* ---------------------------------------------------------------------- */
 
   async function handleDeletePhoto(
@@ -632,7 +607,7 @@ export default function CapturePage() {
       captureLocked
     ) {
       setError(
-        "Case نهایی شده و دیگر امکان حذف تصویر وجود ندارد.",
+        "این ارزیابی نهایی شده و دیگر امکان حذف تصویر وجود ندارد.",
       );
 
       return;
@@ -738,7 +713,7 @@ export default function CapturePage() {
       MIN_TOTAL_PHOTOS
     ) {
       setError(
-        "برای تکمیل Case حداقل یک عکس از یکی از پوزیشن‌ها ثبت کنید.",
+        "برای ادامه حداقل یک عکس ثبت کنید.",
       );
 
       return;
@@ -791,7 +766,7 @@ export default function CapturePage() {
         "MINIMUM_PHOTOS_REQUIRED"
       ) {
         setError(
-          "برای تکمیل Case حداقل یک عکس ثبت کنید.",
+          "برای ادامه حداقل یک عکس ثبت کنید.",
         );
       } else {
         setError(
@@ -850,7 +825,7 @@ export default function CapturePage() {
           "
         >
           {error ??
-            "Case پیدا نشد."}
+            "ارزیابی پیدا نشد."}
         </div>
       </div>
     );
@@ -935,15 +910,10 @@ export default function CapturePage() {
               text-slate-500
             "
           >
-            هیچ پوزیشن خاصی اجباری
-            نیست. برای تکمیل Case حداقل
-            یک عکس از هر پوزیشن دلخواه
-            ثبت کنید. برای هر پوزیشن
-            حداکثر{" "}
-            {
-              MAX_PHOTOS_PER_POSITION
-            }{" "}
-            عکس قابل ثبت است.
+            از هر کدام از نماهای موردنیاز
+            می‌توانید عکس بگیرید. برای
+            ادامه، ثبت حداقل یک عکس کافی
+            است.
           </p>
 
           <p
@@ -971,187 +941,11 @@ export default function CapturePage() {
         </div>
       </header>
 
-      {/* Summary */}
-
-      <section
-        className="
-          mt-6
-          rounded-3xl
-          border
-          border-slate-200
-          bg-white
-          p-4
-          shadow-sm
-        "
-      >
-        <div
-          className="
-            flex
-            items-center
-            justify-between
-          "
-        >
-          <div
-            className="
-              flex
-              items-center
-              gap-2
-            "
-          >
-            <Images
-              size={20}
-              className="
-                text-sky-700
-              "
-            />
-
-            <p
-              className="
-                text-sm
-                font-bold
-                text-slate-900
-              "
-            >
-              تصاویر ثبت‌شده
-            </p>
-          </div>
-
-          <span
-            className="
-              text-xl
-              font-bold
-              text-sky-700
-            "
-          >
-            {
-              totalCapturedPhotos
-            }
-          </span>
-        </div>
-
-        <div
-          className="
-            mt-4
-            grid
-            grid-cols-2
-            gap-3
-          "
-        >
-          <div
-            className="
-              rounded-2xl
-              bg-slate-50
-              p-3
-            "
-          >
-            <p
-              className="
-                text-[11px]
-                text-slate-500
-              "
-            >
-              پوزیشن‌های دارای عکس
-            </p>
-
-            <p
-              className="
-                mt-1
-                text-lg
-                font-bold
-                text-slate-900
-              "
-            >
-              {
-                photographedPositions
-              }
-            </p>
-          </div>
-
-          <div
-            className="
-              rounded-2xl
-              bg-slate-50
-              p-3
-            "
-          >
-            <p
-              className="
-                text-[11px]
-                text-slate-500
-              "
-            >
-              حداقل لازم
-            </p>
-
-            <p
-              className="
-                mt-1
-                text-lg
-                font-bold
-                text-slate-900
-              "
-            >
-              {
-                MIN_TOTAL_PHOTOS
-              }{" "}
-              عکس
-            </p>
-          </div>
-        </div>
-
-        {isReady ? (
-          <div
-            className="
-              mt-4
-              flex
-              items-center
-              gap-2
-              rounded-xl
-              bg-emerald-50
-              px-3
-              py-3
-              text-xs
-              leading-6
-              text-emerald-700
-            "
-          >
-            <CheckCircle2
-              size={17}
-              className="
-                shrink-0
-              "
-            />
-
-            حداقل عکس لازم ثبت شده است.
-            در صورت نیاز می‌توانید عکس‌های
-            بیشتری ثبت کنید یا عکس نامناسب
-            را حذف کنید.
-          </div>
-        ) : (
-          <div
-            className="
-              mt-4
-              rounded-xl
-              bg-amber-50
-              px-3
-              py-3
-              text-xs
-              leading-6
-              text-amber-800
-            "
-          >
-            برای فعال‌شدن ارسال، حداقل
-            یک عکس از یکی از پوزیشن‌ها
-            ثبت کنید.
-          </div>
-        )}
-      </section>
-
-      {/* Positions */}
+      {/* Capture positions */}
 
       <div
         className="
-          mt-4
+          mt-6
           space-y-4
         "
       >
@@ -1220,6 +1014,8 @@ export default function CapturePage() {
         )}
       </div>
 
+      {/* Saving */}
+
       {savingKind && (
         <div
           className="
@@ -1241,9 +1037,11 @@ export default function CapturePage() {
             "
           />
 
-          در حال ذخیره تصویر روی دستگاه...
+          در حال ذخیره تصویر...
         </div>
       )}
+
+      {/* Deleting */}
 
       {deletingPhotoId && (
         <div
@@ -1269,6 +1067,8 @@ export default function CapturePage() {
           در حال حذف تصویر...
         </div>
       )}
+
+      {/* Simple offline message */}
 
       <div
         className="
@@ -1296,14 +1096,16 @@ export default function CapturePage() {
             text-amber-800
           "
         >
-          عکس‌ها ابتدا داخل IndexedDB
-          ذخیره می‌شوند. بنابراین قبل از
-          نهایی‌سازی می‌توانید تصویر
-          نامناسب را حذف یا دوباره ثبت
-          کنید. در حالت آفلاین نیز تصاویر
-          روی دستگاه باقی می‌مانند.
+          عکس‌های شما ذخیره می‌شوند.
+          اگر اینترنت قطع باشد، بعداً
+          به‌صورت خودکار ارسال خواهند شد.
+          قبل از ارسال نیز می‌توانید
+          عکس نامناسب را حذف یا دوباره
+          ثبت کنید.
         </p>
       </div>
+
+      {/* Error */}
 
       {error && (
         <div
@@ -1323,6 +1125,8 @@ export default function CapturePage() {
           }
         </div>
       )}
+
+      {/* Finalize */}
 
       {!captureLocked && (
         <button
@@ -1365,7 +1169,7 @@ export default function CapturePage() {
           )}
 
           {submitting
-            ? "در حال نهایی‌سازی..."
+            ? "در حال ارسال..."
             : "تکمیل تصویربرداری و ارسال"}
         </button>
       )}
