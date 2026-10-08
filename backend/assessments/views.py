@@ -12,8 +12,8 @@ from .authentication import hash_token
 from .models import Assessment, AssessmentPhoto, Device
 from .serializers import AssessmentSerializer, DeviceRegisterSerializer, PhotoSerializer
 
-MIN_POSITIONS = 2          # at least 2 positions photographed
-MIN_PER_POSITION = 2       # each photographed position needs >= 2 photos
+MIN_POSITIONS = 1          # at least 1 position photographed
+MIN_PER_POSITION = 1       # each photographed position needs >= 1 photo
 MAX_PER_POSITION = 5       # ... and <= 5
 
 
@@ -92,7 +92,7 @@ class CompleteView(APIView):
         counts = assessment.photos.values("position").annotate(n=Count("id"))
         errors = []
         if len(counts) < MIN_POSITIONS:
-            errors.append(f"At least {MIN_POSITIONS} positions are required.")
+            errors.append(f"At least {MIN_POSITIONS} position with photos is required.")
         for c in counts:
             if not MIN_PER_POSITION <= c["n"] <= MAX_PER_POSITION:
                 errors.append(f"Position '{c['position']}' needs {MIN_PER_POSITION}-{MAX_PER_POSITION} photos, has {c['n']}.")
@@ -102,3 +102,14 @@ class CompleteView(APIView):
         assessment.is_complete = True
         assessment.save(update_fields=["is_complete"])
         return Response(AssessmentSerializer(assessment).data)
+
+
+class HealthView(APIView):
+    """Tiny public endpoint the app pings to find out whether the server is reachable."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        response = Response({"status": "ok"})
+        response["Cache-Control"] = "no-store"
+        return response

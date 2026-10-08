@@ -15,6 +15,7 @@ import tempfile
 import uuid
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -121,9 +122,10 @@ class RegistrationTests(BaseAPITest):
         self.assertEqual(response.status_code, 400)
 
     def test_registration_is_rate_limited(self):
-        codes = [self.register()[1].status_code for _ in range(11)]
-        self.assertEqual(codes[:10], [201] * 10)
-        self.assertEqual(codes[10], 429)
+        limit = int(settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]["register"].split("/")[0])
+        codes = [self.register()[1].status_code for _ in range(limit + 1)]
+        self.assertEqual(codes[:limit], [201] * limit)
+        self.assertEqual(codes[limit], 429)
 
     def test_request_without_token_is_401(self):
         self.assertEqual(self.client.get(f"{API}/assessments/").status_code, 401)
@@ -257,16 +259,27 @@ class CompleteTests(BaseAPITest):
     def test_no_photos_is_rejected(self):
         self.assertEqual(self.complete(self.doctor, self.case_id).status_code, 400)
 
-    def test_one_position_is_not_enough(self):
+    def test_one_position_is_enough(self):
         self.upload_many(self.doctor, self.case_id, "front", 3)
-        self.assertEqual(self.complete(self.doctor, self.case_id).status_code, 400)
+        response = self.complete(self.doctor, self.case_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Assessment.objects.get(id=self.case_id).is_complete)
 
-    def test_a_position_with_a_single_photo_is_rejected(self):
+    def test_a_position_with_a_single_photo_is_accepted(self):
         self.upload_many(self.doctor, self.case_id, "front", 2)
         self.upload_many(self.doctor, self.case_id, "side", 1)
         response = self.complete(self.doctor, self.case_id)
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(Assessment.objects.get(id=self.case_id).is_complete)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Assessment.objects.get(id=self.case_id).is_complete)
+
+    def test_one_photo_in_each_of_two_positions_succeeds(self):
+        self.upload_many(self.doctor, self.case_id, "front", 1)
+        self.upload_many(self.doctor, self.case_id, "side", 1)
+        self.assertEqual(self.complete(self.doctor, self.case_id).status_code, 200)
+
+    def test_a_single_photo_in_a_single_position_is_enough(self):
+        self.upload_many(self.doctor, self.case_id, "side", 1)
+        self.assertEqual(self.complete(self.doctor, self.case_id).status_code, 200)
 
     def test_two_positions_with_two_photos_each_succeeds(self):
         self.upload_many(self.doctor, self.case_id, "front", 2)
@@ -337,3 +350,11 @@ class ListTests(BaseAPITest):
         new, _ = self.put_case(doctor, created_at="2026-06-01T10:00:00Z")
         ids = [item["id"] for item in doctor.get(f"{API}/assessments/").data]
         self.assertEqual(ids, [new, old])
+
+
+class HealthTests(BaseAPITest):
+    def test_health_is_public_and_never_cached(self):
+        response = self.client.get(f"{API}/health/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"status": "ok"})
+        self.assertEqual(response["Cache-Control"], "no-store")

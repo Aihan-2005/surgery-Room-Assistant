@@ -7,4 +7,5 @@ urlpatterns = [
     path("assessments/<uuid:pk>/", views.AssessmentDetailView.as_view()),
     path("assessments/<uuid:pk>/photos/<uuid:photo_id>/", views.PhotoUploadView.as_view()),
     path("assessments/<uuid:pk>/complete/", views.CompleteView.as_view()),
+        path("health/", views.HealthView.as_view()),
 ]
