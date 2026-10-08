@@ -12,8 +12,8 @@ from .authentication import hash_token
 from .models import Assessment, AssessmentPhoto, Device
 from .serializers import AssessmentSerializer, DeviceRegisterSerializer, PhotoSerializer
 
-MIN_POSITIONS = 1          # at least 1 position photographed
-MIN_PER_POSITION = 1       # each photographed position needs >= 1 photo
+MIN_POSITIONS = 0          # positions that must have photos (0 = a case may have no photos)
+MIN_PER_POSITION = 0       # minimum photos for a position that has any (0 = no minimum)
 MAX_PER_POSITION = 5       # ... and <= 5
 
 
