@@ -4,8 +4,8 @@ import {
 
 import type {
   AirwayCase,
-  CaptureKind,
 } from "@/lib/domain/types";
+
 
 export const runtime =
   "nodejs";
@@ -13,37 +13,21 @@ export const runtime =
 export const dynamic =
   "force-dynamic";
 
+
 const REQUEST_TIMEOUT_MS =
-  15_000;
+  10_000;
 
-interface PhotoMetadata {
-  id: string;
-
-  formField: string;
-
-  kind: CaptureKind;
-
-  filename: string;
-
-  mimeType: string;
-}
-
-interface UploadMetadata {
-  case:
-    AirwayCase;
-
-  photos:
-    PhotoMetadata[];
-}
 
 function getBackendBaseUrl() {
   return process.env
     .BACKEND_API_URL
-    ?.replace(
+    ?.trim()
+    .replace(
       /\/+$/,
       "",
     );
 }
+
 
 function backendHeaders(
   token: string,
@@ -72,9 +56,9 @@ function backendHeaders(
   return headers;
 }
 
+
 async function fetchWithTimeout(
-  input:
-    string,
+  url: string,
   init:
     RequestInit,
 ) {
@@ -90,15 +74,15 @@ async function fetchWithTimeout(
 
   try {
     return await fetch(
-      input,
+      url,
       {
         ...init,
 
-        signal:
-          controller.signal,
-
         cache:
           "no-store",
+
+        signal:
+          controller.signal,
       },
     );
   } finally {
@@ -108,76 +92,8 @@ async function fetchWithTimeout(
   }
 }
 
-function mapSex(
-  sex:
-    AirwayCase["clinical"]["sex"],
-) {
-  if (
-    sex === "male"
-  ) {
-    return "M";
-  }
 
-  if (
-    sex === "female"
-  ) {
-    return "F";
-  }
-
-  throw new Error(
-    "INVALID_SEX",
-  );
-}
-
-function mapNeckMovement(
-  status:
-    AirwayCase["clinical"]["headRotationStatus"],
-) {
-  if (
-    status ===
-    "complete"
-  ) {
-    return "normal";
-  }
-
-  if (
-    status ===
-    "incomplete"
-  ) {
-    return "limited";
-  }
-
-  throw new Error(
-    "INVALID_NECK_MOVEMENT",
-  );
-}
-
-function mapPosition(
-  kind:
-    CaptureKind,
-) {
-  switch (kind) {
-    case "front_neutral":
-      return "front";
-
-    case "mallampati":
-      return "mallampati";
-
-    case "mouth_open":
-      return "open_mouth";
-
-    case "lateral_neutral":
-      return "side";
-
-    /*
-     * فقط برای داده legacy.
-     */
-    case "upper_lip_bite_front":
-      return "front";
-  }
-}
-
-async function parseBackendResponse(
+async function readPayload(
   response:
     Response,
 ) {
@@ -200,13 +116,49 @@ async function parseBackendResponse(
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Connectivity probe                                                         */
-/* -------------------------------------------------------------------------- */
+
+function mapSex(
+  sex:
+    AirwayCase["clinical"]["sex"],
+) {
+  switch (sex) {
+    case "male":
+      return "M";
+
+    case "female":
+      return "F";
+
+    default:
+      throw new Error(
+        "INVALID_SEX",
+      );
+  }
+}
+
+
+function mapNeckMovement(
+  status:
+    AirwayCase["clinical"]["headRotationStatus"],
+) {
+  switch (status) {
+    case "complete":
+      return "normal";
+
+    case "incomplete":
+      return "limited";
+
+    default:
+      throw new Error(
+        "INVALID_NECK_MOVEMENT",
+      );
+  }
+}
+
+
+
 
 export async function GET(
-  request:
-    Request,
+  request: Request,
 ) {
   const backendUrl =
     getBackendBaseUrl();
@@ -219,21 +171,85 @@ export async function GET(
       reachable:
         false,
 
-      authenticated:
+      databaseReady:
         false,
 
-      message:
-        "Backend API تنظیم نشده است.",
+      authenticated:
+        false,
     });
   }
 
-  const token =
-    request.headers.get(
-      "x-device-token",
-    );
-
   try {
-    const response =
+    const healthResponse =
+      await fetchWithTimeout(
+        `${backendUrl}/api/health/`,
+        {
+          method:
+            "GET",
+
+          headers: {
+            Accept:
+              "application/json",
+          },
+        },
+      );
+
+    const healthPayload =
+      await readPayload(
+        healthResponse,
+      );
+
+    if (
+      !healthResponse.ok
+    ) {
+      return NextResponse.json({
+        configured:
+          true,
+
+        reachable:
+          false,
+
+        databaseReady:
+          false,
+
+        authenticated:
+          false,
+
+        backendStatus:
+          healthResponse.status,
+
+        health:
+          healthPayload,
+      });
+    }
+
+    const token =
+      request.headers
+        .get(
+          "x-device-token",
+        )
+        ?.trim();
+
+    if (!token) {
+      return NextResponse.json({
+        configured:
+          true,
+
+        reachable:
+          true,
+
+        databaseReady:
+          true,
+
+        authenticated:
+          false,
+
+        health:
+          healthPayload,
+      });
+    }
+
+    const authResponse =
       await fetchWithTimeout(
         `${backendUrl}/api/assessments/`,
         {
@@ -241,64 +257,57 @@ export async function GET(
             "GET",
 
           headers:
-            token
-              ? backendHeaders(
-                  token,
-                )
-              : {
-                  Accept:
-                    "application/json",
-                },
+            backendHeaders(
+              token,
+            ),
         },
       );
-
-    /*
-     * حتی 401 یعنی خود Django در دسترس است.
-     */
-    const reachable =
-      response.ok ||
-      response.status ===
-        401 ||
-      response.status ===
-        403;
 
     return NextResponse.json({
       configured:
         true,
 
-      reachable,
+      reachable:
+        true,
+
+      databaseReady:
+        true,
 
       authenticated:
-        response.ok,
+        authResponse.ok,
 
-      status:
-        response.status,
+      authStatus:
+        authResponse.status,
+
+      health:
+        healthPayload,
     });
-  } catch {
-    return NextResponse.json(
-      {
-        configured:
-          true,
-
-        reachable:
-          false,
-
-        authenticated:
-          false,
-
-        message:
-          "Backend در دسترس نیست.",
-      },
-      {
-        status: 503,
-      },
+  } catch (
+    error
+  ) {
+    console.error(
+      "Backend health probe failed:",
+      error,
     );
+
+    return NextResponse.json({
+      configured:
+        true,
+
+      reachable:
+        false,
+
+      databaseReady:
+        false,
+
+      authenticated:
+        false,
+    });
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Full assessment sync                                                       */
-/* -------------------------------------------------------------------------- */
+
+
 
 export async function POST(
   request:
@@ -326,9 +335,11 @@ export async function POST(
   }
 
   const token =
-    request.headers.get(
-      "x-device-token",
-    );
+    request.headers
+      .get(
+        "x-device-token",
+      )
+      ?.trim();
 
   if (!token) {
     return NextResponse.json(
@@ -349,42 +360,31 @@ export async function POST(
   }
 
   try {
-    const formData =
-      await request.formData();
+    const body =
+      (await request.json()) as {
+        case?: AirwayCase;
+      };
 
-    const metadataValue =
-      formData.get(
-        "metadata",
-      );
+    const airwayCase =
+      body.case;
 
-    if (
-      typeof metadataValue !==
-      "string"
-    ) {
+    if (!airwayCase) {
       return NextResponse.json(
         {
           success:
             false,
 
           code:
-            "INVALID_METADATA",
+            "CASE_REQUIRED",
 
           message:
-            "Metadata موجود نیست.",
+            "Case موجود نیست.",
         },
         {
           status: 400,
         },
       );
     }
-
-    const metadata =
-      JSON.parse(
-        metadataValue,
-      ) as UploadMetadata;
-
-    const airwayCase =
-      metadata.case;
 
     const clinical =
       airwayCase.clinical;
@@ -415,38 +415,7 @@ export async function POST(
       );
     }
 
-    /* ------------------------------------------------------------------ */
-    /* 1. Create/update Assessment                                         */
-    /* ------------------------------------------------------------------ */
-
-    const assessmentPayload = {
-      full_name:
-        clinical.fullName,
-
-      age:
-        clinical.ageYears,
-
-      sex:
-        mapSex(
-          clinical.sex,
-        ),
-
-      height_cm:
-        clinical.heightCm,
-
-      weight_kg:
-        clinical.weightKg,
-
-      neck_movement:
-        mapNeckMovement(
-          clinical.headRotationStatus,
-        ),
-
-      created_at:
-        airwayCase.createdAt,
-    };
-
-    const assessmentResponse =
+    const response =
       await fetchWithTimeout(
         `${backendUrl}/api/assessments/${airwayCase.id}/`,
         {
@@ -460,28 +429,49 @@ export async function POST(
             ),
 
           body:
-            JSON.stringify(
-              assessmentPayload,
-            ),
+            JSON.stringify({
+              full_name:
+                clinical.fullName,
+
+              age:
+                clinical.ageYears,
+
+              sex:
+                mapSex(
+                  clinical.sex,
+                ),
+
+              height_cm:
+                clinical.heightCm,
+
+              weight_kg:
+                clinical.weightKg,
+
+              neck_movement:
+                mapNeckMovement(
+                  clinical.headRotationStatus,
+                ),
+
+              created_at:
+                airwayCase.createdAt,
+            }),
         },
       );
 
-    if (
-      !assessmentResponse.ok
-    ) {
-      const backendError =
-        await parseBackendResponse(
-          assessmentResponse,
-        );
+    const payload =
+      await readPayload(
+        response,
+      );
 
+    if (!response.ok) {
       return NextResponse.json(
         {
           success:
             false,
 
           code:
-            assessmentResponse.status ===
-            401
+            response.status ===
+              401
               ? "DEVICE_UNAUTHORIZED"
               : "ASSESSMENT_REJECTED",
 
@@ -489,159 +479,11 @@ export async function POST(
             "Backend اطلاعات بیمار را نپذیرفت.",
 
           backend:
-            backendError,
+            payload,
         },
         {
           status:
-            assessmentResponse.status,
-        },
-      );
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 2. Upload photos                                                    */
-    /* ------------------------------------------------------------------ */
-
-    for (
-      const photo of
-      metadata.photos
-    ) {
-      const file =
-        formData.get(
-          photo.formField,
-        );
-
-      if (
-        !file ||
-        typeof file ===
-          "string"
-      ) {
-        return NextResponse.json(
-          {
-            success:
-              false,
-
-            code:
-              "PHOTO_FILE_MISSING",
-
-            message:
-              `فایل ${photo.id} موجود نیست.`,
-          },
-          {
-            status: 400,
-          },
-        );
-      }
-
-      const backendPhotoForm =
-        new FormData();
-
-      backendPhotoForm.append(
-        "position",
-        mapPosition(
-          photo.kind,
-        ),
-      );
-
-      backendPhotoForm.append(
-        "image",
-        file,
-        photo.filename,
-      );
-
-      const photoResponse =
-        await fetchWithTimeout(
-          `${backendUrl}/api/assessments/${airwayCase.id}/photos/${photo.id}/`,
-          {
-            method:
-              "PUT",
-
-            headers:
-              backendHeaders(
-                token,
-              ),
-
-            body:
-              backendPhotoForm,
-          },
-        );
-
-      if (
-        !photoResponse.ok
-      ) {
-        const backendError =
-          await parseBackendResponse(
-            photoResponse,
-          );
-
-        return NextResponse.json(
-          {
-            success:
-              false,
-
-            code:
-              photoResponse.status ===
-              401
-                ? "DEVICE_UNAUTHORIZED"
-                : "PHOTO_UPLOAD_REJECTED",
-
-            message:
-              `ارسال تصویر ${photo.id} ناموفق بود.`,
-
-            backend:
-              backendError,
-          },
-          {
-            status:
-              photoResponse.status,
-          },
-        );
-      }
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 3. Complete assessment                                              */
-    /* ------------------------------------------------------------------ */
-
-    const completeResponse =
-      await fetchWithTimeout(
-        `${backendUrl}/api/assessments/${airwayCase.id}/complete/`,
-        {
-          method:
-            "POST",
-
-          headers:
-            backendHeaders(
-              token,
-            ),
-        },
-      );
-
-    const completionPayload =
-      await parseBackendResponse(
-        completeResponse,
-      );
-
-    if (
-      !completeResponse.ok
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          code:
-            "ASSESSMENT_NOT_COMPLETE",
-
-          message:
-            "Backend Case را کامل تشخیص نداد.",
-
-          backend:
-            completionPayload,
-        },
-        {
-          status:
-            completeResponse.status,
+            response.status,
         },
       );
     }
@@ -655,15 +497,12 @@ export async function POST(
 
       receivedAt:
         new Date().toISOString(),
-
-      backend:
-        completionPayload,
     });
   } catch (
     error
   ) {
     console.error(
-      "Assessment sync proxy failed:",
+      "Case metadata sync failed:",
       error,
     );
 
@@ -684,4 +523,3 @@ export async function POST(
     );
   }
 }
-

@@ -46,7 +46,8 @@ import type {
 
  
 function isPendingCase(
-  airwayCase: AirwayCase,
+  airwayCase:
+    AirwayCase,
 ) {
   return (
     airwayCase.syncStatus ===

@@ -25,6 +25,7 @@ import {
   ServiceWorkerRegister,
 } from "@/components/pwa/service-worker-register";
 
+
 export const metadata: Metadata = {
   title: {
     default:
@@ -37,6 +38,7 @@ export const metadata: Metadata = {
   description:
     "Standardized mobile airway image capture and case collection",
 };
+
 
 export const viewport: Viewport = {
   width:
@@ -53,6 +55,7 @@ export const viewport: Viewport = {
     "#0369a1",
 };
 
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -67,25 +70,27 @@ export default function RootLayout({
       <body>
         <ServiceWorkerRegister />
 
-        <OperatorGate>
-          <ConnectivityProvider>
-            <AutoSyncManager />
+        <ConnectivityProvider>
+          <OperatorGate>
+            <>
+              <AutoSyncManager />
 
-            <main
-              className="
-                mx-auto
-                min-h-screen
-                max-w-md
-                bg-slate-50
-                pb-28
-              "
-            >
-              {children}
-            </main>
+              <main
+                className="
+                  mx-auto
+                  min-h-screen
+                  max-w-md
+                  bg-slate-50
+                  pb-28
+                "
+              >
+                {children}
+              </main>
 
-            <BottomNav />
-          </ConnectivityProvider>
-        </OperatorGate>
+              <BottomNav />
+            </>
+          </OperatorGate>
+        </ConnectivityProvider>
       </body>
     </html>
   );

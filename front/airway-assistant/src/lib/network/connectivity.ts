@@ -2,12 +2,14 @@ import {
   getOperatorProfile,
 } from "@/lib/profile/operator-profile";
 
+
 export type ConnectivityMode =
   | "checking"
   | "online"
   | "weak"
   | "offline"
   | "local-only";
+
 
 export type ConnectivityReason =
   | "checking"
@@ -17,8 +19,10 @@ export type ConnectivityReason =
   | "connection_too_slow"
   | "backend_not_configured"
   | "backend_unreachable"
+  | "database_unavailable"
   | "device_not_registered"
   | "device_unauthorized";
+
 
 export interface ConnectivitySnapshot {
   mode:
@@ -37,6 +41,9 @@ export interface ConnectivitySnapshot {
     boolean;
 
   backendReachable:
+    boolean;
+
+  databaseReady:
     boolean;
 
   authenticated:
@@ -61,6 +68,7 @@ export interface ConnectivitySnapshot {
     string;
 }
 
+
 interface BrowserNetworkInformation
   extends EventTarget {
   effectiveType?:
@@ -76,6 +84,7 @@ interface BrowserNetworkInformation
     boolean;
 }
 
+
 interface NavigatorWithConnection
   extends Navigator {
   connection?:
@@ -88,6 +97,7 @@ interface NavigatorWithConnection
     BrowserNetworkInformation;
 }
 
+
 interface BackendHealthResponse {
   configured?:
     boolean;
@@ -95,24 +105,29 @@ interface BackendHealthResponse {
   reachable?:
     boolean;
 
+  databaseReady?:
+    boolean;
+
   authenticated?:
     boolean;
 
-  status?:
+  authStatus?:
     number;
 }
 
+
 const PROBE_TIMEOUT_MS =
-  4500;
+  6000;
 
 const WEAK_PROBE_LATENCY_MS =
-  3000;
+  3500;
 
 const WEAK_DOWNLINK_MBPS =
   0.75;
 
 const WEAK_RTT_MS =
   1500;
+
 
 export function getBrowserConnection():
   | BrowserNetworkInformation
@@ -124,17 +139,18 @@ export function getBrowserConnection():
     return null;
   }
 
-  const browserNavigator =
+  const nav =
     navigator as
       NavigatorWithConnection;
 
   return (
-    browserNavigator.connection ??
-    browserNavigator.mozConnection ??
-    browserNavigator.webkitConnection ??
+    nav.connection ??
+    nav.mozConnection ??
+    nav.webkitConnection ??
     null
   );
 }
+
 
 function weakConnection(
   connection:
@@ -156,8 +172,7 @@ function weakConnection(
   if (
     typeof connection.downlink ===
       "number" &&
-    connection.downlink >
-      0 &&
+    connection.downlink > 0 &&
     connection.downlink <
       WEAK_DOWNLINK_MBPS
   ) {
@@ -171,6 +186,7 @@ function weakConnection(
       WEAK_RTT_MS
   );
 }
+
 
 function snapshot(
   value:
@@ -186,6 +202,7 @@ function snapshot(
       new Date().toISOString(),
   };
 }
+
 
 export async function checkConnectivity():
   Promise<ConnectivitySnapshot> {
@@ -205,6 +222,7 @@ export async function checkConnectivity():
     saveData:
       connection?.saveData,
   };
+
 
   if (
     typeof navigator ===
@@ -229,6 +247,9 @@ export async function checkConnectivity():
       backendReachable:
         false,
 
+      databaseReady:
+        false,
+
       authenticated:
         false,
 
@@ -236,8 +257,10 @@ export async function checkConnectivity():
     });
   }
 
+
   if (
-    !navigator.onLine
+    navigator.onLine ===
+    false
   ) {
     return snapshot({
       mode:
@@ -258,12 +281,16 @@ export async function checkConnectivity():
       backendReachable:
         false,
 
+      databaseReady:
+        false,
+
       authenticated:
         false,
 
       ...common,
     });
   }
+
 
   const operator =
     getOperatorProfile();
@@ -278,8 +305,9 @@ export async function checkConnectivity():
       PROBE_TIMEOUT_MS,
     );
 
-  const started =
+  const startedAt =
     performance.now();
+
 
   try {
     const response =
@@ -290,7 +318,7 @@ export async function checkConnectivity():
             "GET",
 
           headers:
-            operator
+            operator?.deviceToken
               ? {
                   "X-Device-Token":
                     operator.deviceToken,
@@ -308,12 +336,13 @@ export async function checkConnectivity():
     const latency =
       Math.round(
         performance.now() -
-          started,
+        startedAt,
       );
 
     const health =
       (await response.json()) as
         BackendHealthResponse;
+
 
     if (
       !health.configured
@@ -337,6 +366,9 @@ export async function checkConnectivity():
         backendReachable:
           false,
 
+        databaseReady:
+          false,
+
         authenticated:
           false,
 
@@ -347,6 +379,7 @@ export async function checkConnectivity():
       });
     }
 
+
     if (
       !health.reachable
     ) {
@@ -355,7 +388,10 @@ export async function checkConnectivity():
           "offline",
 
         reason:
-          "backend_unreachable",
+          health.databaseReady ===
+            false
+            ? "database_unavailable"
+            : "backend_unreachable",
 
         canUpload:
           false,
@@ -369,6 +405,10 @@ export async function checkConnectivity():
         backendReachable:
           false,
 
+        databaseReady:
+          health.databaseReady ===
+          true,
+
         authenticated:
           false,
 
@@ -378,6 +418,7 @@ export async function checkConnectivity():
         ...common,
       });
     }
+
 
     if (
       weakConnection(
@@ -405,6 +446,10 @@ export async function checkConnectivity():
         backendReachable:
           true,
 
+        databaseReady:
+          health.databaseReady ===
+          true,
+
         authenticated:
           health.authenticated ===
           true,
@@ -416,8 +461,10 @@ export async function checkConnectivity():
       });
     }
 
+
     if (
-      !operator
+      !operator ||
+      !operator.deviceToken
     ) {
       return snapshot({
         mode:
@@ -438,6 +485,9 @@ export async function checkConnectivity():
         backendReachable:
           true,
 
+        databaseReady:
+          true,
+
         authenticated:
           false,
 
@@ -447,6 +497,7 @@ export async function checkConnectivity():
         ...common,
       });
     }
+
 
     if (
       !health.authenticated
@@ -470,6 +521,9 @@ export async function checkConnectivity():
         backendReachable:
           true,
 
+        databaseReady:
+          true,
+
         authenticated:
           false,
 
@@ -479,6 +533,7 @@ export async function checkConnectivity():
         ...common,
       });
     }
+
 
     return snapshot({
       mode:
@@ -497,6 +552,9 @@ export async function checkConnectivity():
         true,
 
       backendReachable:
+        true,
+
+      databaseReady:
         true,
 
       authenticated:
@@ -527,6 +585,9 @@ export async function checkConnectivity():
       backendReachable:
         false,
 
+      databaseReady:
+        false,
+
       authenticated:
         false,
 
@@ -538,6 +599,7 @@ export async function checkConnectivity():
     );
   }
 }
+
 
 export const INITIAL_CONNECTIVITY:
   ConnectivitySnapshot = {
@@ -557,6 +619,9 @@ export const INITIAL_CONNECTIVITY:
     false,
 
   backendReachable:
+    false,
+
+  databaseReady:
     false,
 
   authenticated:

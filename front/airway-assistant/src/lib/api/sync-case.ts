@@ -4,10 +4,6 @@ import {
   updateCaseStatus,
 } from "@/lib/db/database";
 
-import {
-  buildCaseFormData,
-} from "@/lib/api/build-case-form-data";
-
 import type {
   CaseSyncResponse,
 } from "@/lib/api/contracts";
@@ -15,6 +11,7 @@ import type {
 import {
   getOperatorProfile,
 } from "@/lib/profile/operator-profile";
+
 
 export class CaseSyncError
   extends Error {
@@ -25,8 +22,10 @@ export class CaseSyncError
   constructor(
     message:
       string,
+
     code =
       "SYNC_FAILED",
+
     status?:
       number,
   ) {
@@ -44,6 +43,7 @@ export class CaseSyncError
       status;
   }
 }
+
 
 async function readResponse(
   response:
@@ -67,13 +67,16 @@ async function readResponse(
   }
 }
 
+
 function isRetryableError(
   error:
     unknown,
 ) {
   if (
-    !(error instanceof
-      CaseSyncError)
+    !(
+      error instanceof
+      CaseSyncError
+    )
   ) {
     return true;
   }
@@ -82,18 +85,23 @@ function isRetryableError(
     error.code ===
       "BACKEND_NOT_CONFIGURED" ||
     error.code ===
-      "SYNC_GATEWAY_ERROR"
+      "SYNC_GATEWAY_ERROR" ||
+    error.code ===
+      "PHOTO_NETWORK_ERROR" ||
+    error.code ===
+      "DEVICE_NOT_REGISTERED" ||
+    error.code ===
+      "DEVICE_TOKEN_REQUIRED" ||
+    error.code ===
+      "DEVICE_UNAUTHORIZED"
   ) {
     return true;
   }
 
   if (
-    error.status ===
-      408 ||
-    error.status ===
-      425 ||
-    error.status ===
-      429
+    error.status === 408 ||
+    error.status === 425 ||
+    error.status === 429
   ) {
     return true;
   }
@@ -101,14 +109,44 @@ function isRetryableError(
   if (
     typeof error.status ===
       "number" &&
-    error.status >=
-      500
+    error.status >= 500
   ) {
     return true;
   }
 
   return false;
 }
+
+
+async function ensureSuccess(
+  response:
+    Response,
+) {
+  const result =
+    await readResponse(
+      response,
+    );
+
+  if (
+    !response.ok ||
+    !result.success
+  ) {
+    throw new CaseSyncError(
+      result.success
+        ? "ارسال ناموفق بود."
+        : result.message,
+
+      result.success
+        ? "SYNC_FAILED"
+        : result.code,
+
+      response.status,
+    );
+  }
+
+  return result;
+}
+
 
 export async function syncCase(
   caseId:
@@ -117,10 +155,15 @@ export async function syncCase(
   const operator =
     getOperatorProfile();
 
-  if (!operator) {
+  if (
+    !operator ||
+    !operator.deviceToken
+  ) {
     throw new CaseSyncError(
-      "پزشک در Backend ثبت نشده است.",
+      "Device هنوز در Backend ثبت نشده است.",
+
       "DEVICE_NOT_REGISTERED",
+
       401,
     );
   }
@@ -133,6 +176,7 @@ export async function syncCase(
   if (!airwayCase) {
     throw new CaseSyncError(
       "Case پیدا نشد.",
+
       "CASE_NOT_FOUND",
     );
   }
@@ -145,8 +189,14 @@ export async function syncCase(
   if (
     photos.length === 0
   ) {
+    await updateCaseStatus(
+      caseId,
+      "failed",
+    );
+
     throw new CaseSyncError(
       "هیچ تصویری برای ارسال وجود ندارد.",
+
       "NO_PHOTOS",
     );
   }
@@ -157,15 +207,100 @@ export async function syncCase(
   );
 
   try {
-    const body =
-      buildCaseFormData(
-        airwayCase,
-        photos,
-      );
+    /* -------------------------------------------------------------- */
+    /* 1. Metadata                                                     */
+    /* -------------------------------------------------------------- */
 
-    const response =
+    const metadataResponse =
       await fetch(
         "/api/sync/cases",
+        {
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+
+            "X-Device-Token":
+              operator.deviceToken,
+          },
+
+          body:
+            JSON.stringify({
+              case:
+                airwayCase,
+            }),
+
+          cache:
+            "no-store",
+        },
+      );
+
+    await ensureSuccess(
+      metadataResponse,
+    );
+
+    /* -------------------------------------------------------------- */
+    /* 2. Photos one by one                                            */
+    /* -------------------------------------------------------------- */
+
+    for (
+      const photo of
+      photos
+    ) {
+      const form =
+        new FormData();
+
+      form.append(
+        "kind",
+        photo.kind,
+      );
+
+      form.append(
+        "image",
+        photo.blob,
+        photo.filename,
+      );
+
+      const photoResponse =
+        await fetch(
+          `/api/sync/cases/${encodeURIComponent(
+            caseId,
+          )}/photos/${encodeURIComponent(
+            photo.id,
+          )}`,
+          {
+            method:
+              "PUT",
+
+            headers: {
+              "X-Device-Token":
+                operator.deviceToken,
+            },
+
+            body:
+              form,
+
+            cache:
+              "no-store",
+          },
+        );
+
+      await ensureSuccess(
+        photoResponse,
+      );
+    }
+
+    /* -------------------------------------------------------------- */
+    /* 3. Complete                                                     */
+    /* -------------------------------------------------------------- */
+
+    const completeResponse =
+      await fetch(
+        `/api/sync/cases/${encodeURIComponent(
+          caseId,
+        )}/complete`,
         {
           method:
             "POST",
@@ -175,34 +310,15 @@ export async function syncCase(
               operator.deviceToken,
           },
 
-          body,
-
           cache:
             "no-store",
         },
       );
 
     const result =
-      await readResponse(
-        response,
+      await ensureSuccess(
+        completeResponse,
       );
-
-    if (
-      !response.ok ||
-      !result.success
-    ) {
-      throw new CaseSyncError(
-        result.success
-          ? "ارسال Case ناموفق بود."
-          : result.message,
-
-        result.success
-          ? "SYNC_FAILED"
-          : result.code,
-
-        response.status,
-      );
-    }
 
     await updateCaseStatus(
       caseId,
@@ -245,4 +361,3 @@ export async function syncCase(
     );
   }
 }
-

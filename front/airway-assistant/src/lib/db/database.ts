@@ -1073,7 +1073,6 @@ export async function deletePhoto(
 
   await transaction.done;
 }
-
 export async function finalizePreop(
   caseId: string,
 ) {
@@ -1106,6 +1105,12 @@ export async function finalizePreop(
     );
   }
 
+  if (
+    airwayCase.preopLockedAt
+  ) {
+    return airwayCase;
+  }
+
   const photos =
     await transaction
       .objectStore(
@@ -1118,16 +1123,22 @@ export async function finalizePreop(
         caseId,
       );
 
+
   const incompleteKinds =
     REQUIRED_CAPTURE_KINDS.filter(
-      (kind) =>
+      (
+        kind,
+      ) =>
         photos.filter(
-          (photo) =>
+          (
+            photo,
+          ) =>
             photo.kind ===
             kind,
         ).length <
         MIN_PHOTOS_PER_REQUIRED_POSITION,
     );
+
 
   if (
     incompleteKinds.length >
@@ -1140,18 +1151,40 @@ export async function finalizePreop(
     );
   }
 
+
   const now =
     new Date().toISOString();
 
+
+  /*
+   * Outcome page به این status نیاز دارد.
+   */
   airwayCase.studyStatus =
-    "preop_ready";
+    "awaiting_outcome";
+
+
+  /*
+   * از همین لحظه Backend sync
+   * می‌تواند در پس‌زمینه انجام شود.
+   */
+  airwayCase.syncStatus =
+    "queued";
+
+
+  airwayCase.preopLockedAt =
+    now;
+
+  airwayCase.captureCompletedAt =
+    now;
 
   airwayCase.updatedAt =
     now;
 
+
   await caseStore.put(
     airwayCase,
   );
+
 
   await transaction
     .objectStore(
@@ -1164,7 +1197,9 @@ export async function finalizePreop(
       ),
     );
 
+
   await transaction.done;
+
 
   return airwayCase;
 }
