@@ -5,19 +5,26 @@ import {
 } from "@/lib/db/database";
 
 import type {
+  AirwayCase,
+  StoredPhoto,
+} from "@/lib/domain/types";
+
+import type {
   CaseSyncResponse,
 } from "@/lib/api/contracts";
 
 import {
+  ensureOperatorRegistered,
   getOperatorProfile,
 } from "@/lib/profile/operator-profile";
 
-
 export class CaseSyncError
   extends Error {
-  code: string;
+  code:
+    string;
 
-  status?: number;
+  status?:
+    number;
 
   constructor(
     message:
@@ -44,7 +51,6 @@ export class CaseSyncError
   }
 }
 
-
 async function readResponse(
   response:
     Response,
@@ -66,57 +72,6 @@ async function readResponse(
     };
   }
 }
-
-
-function isRetryableError(
-  error:
-    unknown,
-) {
-  if (
-    !(
-      error instanceof
-      CaseSyncError
-    )
-  ) {
-    return true;
-  }
-
-  if (
-    error.code ===
-      "BACKEND_NOT_CONFIGURED" ||
-    error.code ===
-      "SYNC_GATEWAY_ERROR" ||
-    error.code ===
-      "PHOTO_NETWORK_ERROR" ||
-    error.code ===
-      "DEVICE_NOT_REGISTERED" ||
-    error.code ===
-      "DEVICE_TOKEN_REQUIRED" ||
-    error.code ===
-      "DEVICE_UNAUTHORIZED"
-  ) {
-    return true;
-  }
-
-  if (
-    error.status === 408 ||
-    error.status === 425 ||
-    error.status === 429
-  ) {
-    return true;
-  }
-
-  if (
-    typeof error.status ===
-      "number" &&
-    error.status >= 500
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 
 async function ensureSuccess(
   response:
@@ -147,20 +102,103 @@ async function ensureSuccess(
   return result;
 }
 
-
-export async function syncCase(
-  caseId:
-    string,
-): Promise<CaseSyncResponse> {
-  const operator =
-    getOperatorProfile();
+function isRetryableError(
+  error:
+    unknown,
+) {
+  if (
+    !(
+      error instanceof
+      CaseSyncError
+    )
+  ) {
+    return true;
+  }
 
   if (
-    !operator ||
-    !operator.deviceToken
+    error.code ===
+      "BACKEND_NOT_CONFIGURED" ||
+    error.code ===
+      "SYNC_GATEWAY_ERROR" ||
+    error.code ===
+      "PHOTO_NETWORK_ERROR" ||
+    error.code ===
+      "DEVICE_NOT_REGISTERED" ||
+    error.code ===
+      "DEVICE_TOKEN_REQUIRED" ||
+    error.code ===
+      "DEVICE_UNAUTHORIZED" ||
+    error.code ===
+      "NETWORK_ERROR"
+  ) {
+    return true;
+  }
+
+  if (
+    error.status ===
+      408 ||
+    error.status ===
+      425 ||
+    error.status ===
+      429
+  ) {
+    return true;
+  }
+
+  return (
+    typeof error.status ===
+      "number" &&
+    error.status >=
+      500
+  );
+}
+
+async function getDeviceToken(
+  force:
+    boolean,
+) {
+  let profile =
+    getOperatorProfile();
+
+  if (!profile) {
+    throw new CaseSyncError(
+      "مشخصات پزشک روی دستگاه موجود نیست.",
+
+      "OPERATOR_PROFILE_REQUIRED",
+    );
+  }
+
+  if (
+    force ||
+    !profile.deviceToken
+  ) {
+    try {
+      profile =
+        await ensureOperatorRegistered(
+          {
+            force,
+          },
+        );
+    } catch (
+      error
+    ) {
+      throw new CaseSyncError(
+        error instanceof Error
+          ? error.message
+          : "ثبت Device انجام نشد.",
+
+        "DEVICE_NOT_REGISTERED",
+
+        503,
+      );
+    }
+  }
+
+  if (
+    !profile.deviceToken
   ) {
     throw new CaseSyncError(
-      "Device هنوز در Backend ثبت نشده است.",
+      "Device token موجود نیست.",
 
       "DEVICE_NOT_REGISTERED",
 
@@ -168,6 +206,136 @@ export async function syncCase(
     );
   }
 
+  return profile.deviceToken;
+}
+
+async function uploadAttempt(
+  airwayCase:
+    AirwayCase,
+
+  photos:
+    StoredPhoto[],
+
+  token:
+    string,
+): Promise<CaseSyncResponse> {
+  /* ---------------------------------------------------------------------- */
+  /* 1. Patient / Assessment metadata                                       */
+  /* ---------------------------------------------------------------------- */
+
+  const metadataResponse =
+    await fetch(
+      "/api/sync/cases",
+      {
+        method:
+          "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "X-Device-Token":
+            token,
+        },
+
+        body:
+          JSON.stringify({
+            case:
+              airwayCase,
+          }),
+
+        cache:
+          "no-store",
+      },
+    );
+
+  await ensureSuccess(
+    metadataResponse,
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* 2. Photos individually                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  for (
+    const photo of
+    photos
+  ) {
+    const form =
+      new FormData();
+
+    form.append(
+      "kind",
+      photo.kind,
+    );
+
+    form.append(
+      "image",
+      photo.blob,
+      photo.filename,
+    );
+
+    const response =
+      await fetch(
+        `/api/sync/cases/${encodeURIComponent(
+          airwayCase.id,
+        )}/photos/${encodeURIComponent(
+          photo.id,
+        )}`,
+        {
+          method:
+            "PUT",
+
+          headers: {
+            "X-Device-Token":
+              token,
+          },
+
+          body:
+            form,
+
+          cache:
+            "no-store",
+        },
+      );
+
+    await ensureSuccess(
+      response,
+    );
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 3. Complete                                                            */
+  /* ---------------------------------------------------------------------- */
+
+  const completeResponse =
+    await fetch(
+      `/api/sync/cases/${encodeURIComponent(
+        airwayCase.id,
+      )}/complete`,
+      {
+        method:
+          "POST",
+
+        headers: {
+          "X-Device-Token":
+            token,
+        },
+
+        cache:
+          "no-store",
+      },
+    );
+
+  return ensureSuccess(
+    completeResponse,
+  );
+}
+
+export async function syncCase(
+  caseId:
+    string,
+): Promise<CaseSyncResponse> {
   const airwayCase =
     await getCase(
       caseId,
@@ -207,125 +375,61 @@ export async function syncCase(
   );
 
   try {
-    /* -------------------------------------------------------------- */
-    /* 1. Metadata                                                     */
-    /* -------------------------------------------------------------- */
-
-    const metadataResponse =
-      await fetch(
-        "/api/sync/cases",
-        {
-          method:
-            "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            "X-Device-Token":
-              operator.deviceToken,
-          },
-
-          body:
-            JSON.stringify({
-              case:
-                airwayCase,
-            }),
-
-          cache:
-            "no-store",
-        },
+    let token =
+      await getDeviceToken(
+        false,
       );
 
-    await ensureSuccess(
-      metadataResponse,
-    );
-
-    /* -------------------------------------------------------------- */
-    /* 2. Photos one by one                                            */
-    /* -------------------------------------------------------------- */
-
-    for (
-      const photo of
-      photos
-    ) {
-      const form =
-        new FormData();
-
-      form.append(
-        "kind",
-        photo.kind,
-      );
-
-      form.append(
-        "image",
-        photo.blob,
-        photo.filename,
-      );
-
-      const photoResponse =
-        await fetch(
-          `/api/sync/cases/${encodeURIComponent(
-            caseId,
-          )}/photos/${encodeURIComponent(
-            photo.id,
-          )}`,
-          {
-            method:
-              "PUT",
-
-            headers: {
-              "X-Device-Token":
-                operator.deviceToken,
-            },
-
-            body:
-              form,
-
-            cache:
-              "no-store",
-          },
+    try {
+      const result =
+        await uploadAttempt(
+          airwayCase,
+          photos,
+          token,
         );
 
-      await ensureSuccess(
-        photoResponse,
+      await updateCaseStatus(
+        caseId,
+        "synced",
       );
-    }
 
-    /* -------------------------------------------------------------- */
-    /* 3. Complete                                                     */
-    /* -------------------------------------------------------------- */
+      return result;
+    } catch (
+      firstError
+    ) {
+      /*
+       * Token قدیمی / حذف Device از سرور:
+       * یک بار Device جدید ثبت می‌کنیم
+       * و کل عملیات idempotent را retry می‌کنیم.
+       */
+      if (
+        firstError instanceof
+          CaseSyncError &&
+        firstError.code ===
+          "DEVICE_UNAUTHORIZED"
+      ) {
+        token =
+          await getDeviceToken(
+            true,
+          );
 
-    const completeResponse =
-      await fetch(
-        `/api/sync/cases/${encodeURIComponent(
+        const result =
+          await uploadAttempt(
+            airwayCase,
+            photos,
+            token,
+          );
+
+        await updateCaseStatus(
           caseId,
-        )}/complete`,
-        {
-          method:
-            "POST",
+          "synced",
+        );
 
-          headers: {
-            "X-Device-Token":
-              operator.deviceToken,
-          },
+        return result;
+      }
 
-          cache:
-            "no-store",
-        },
-      );
-
-    const result =
-      await ensureSuccess(
-        completeResponse,
-      );
-
-    await updateCaseStatus(
-      caseId,
-      "synced",
-    );
-
-    return result;
+      throw firstError;
+    }
   } catch (
     error
   ) {
@@ -361,3 +465,5 @@ export async function syncCase(
     );
   }
 }
+
+

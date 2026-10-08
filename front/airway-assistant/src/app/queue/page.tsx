@@ -29,7 +29,6 @@ import {
 
 import {
   getAllCases,
-  updateCaseStatus,
 } from "@/lib/db/database";
 
 import {
@@ -44,7 +43,6 @@ import type {
   AirwayCase,
 } from "@/lib/domain/types";
 
- 
 function isPendingCase(
   airwayCase:
     AirwayCase,
@@ -112,10 +110,10 @@ function getStatusClass(
   }
 }
 
- 
 export default function QueuePage() {
   const {
     connectivity,
+
     refresh:
       refreshConnectivity,
   } =
@@ -150,15 +148,20 @@ export default function QueuePage() {
     useState<
       string | null
     >(null);
- 
-
 
   const loadQueue =
     useCallback(
-      async () => {
-        setLoading(
-          true,
-        );
+      async (
+        showLoading =
+          false,
+      ) => {
+        if (
+          showLoading
+        ) {
+          setLoading(
+            true,
+          );
+        }
 
         try {
           const cases =
@@ -197,84 +200,71 @@ export default function QueuePage() {
             "خواندن صف ارسال انجام نشد.",
           );
         } finally {
-          setLoading(
-            false,
-          );
+          if (
+            showLoading
+          ) {
+            setLoading(
+              false,
+            );
+          }
         }
       },
       [],
     );
 
-
-    
   useEffect(() => {
-    void loadQueue();
+    void loadQueue(
+      true,
+    );
 
-    const handleFocus =
-      () => {
-        void loadQueue();
-
-        void refreshConnectivity();
-      };
-
-    const handleOnline =
-      () => {
-        void loadQueue();
-
-        void refreshConnectivity();
-      };
-
-    const handleOffline =
-      () => {
-        void loadQueue();
-
-        void refreshConnectivity();
-      };
-
-
-      
-
-    const intervalId =
+    const interval =
       window.setInterval(
         () => {
           void loadQueue();
         },
-        5000,
+        3000,
       );
+
+    const handleStateChange =
+      () => {
+        void loadQueue();
+
+        void refreshConnectivity();
+      };
 
     window.addEventListener(
       "focus",
-      handleFocus,
+      handleStateChange,
     );
 
     window.addEventListener(
       "online",
-      handleOnline,
+      handleStateChange,
     );
 
     window.addEventListener(
       "offline",
-      handleOffline,
+      handleStateChange,
     );
 
     return () => {
       window.clearInterval(
-        intervalId,
+        interval,
       );
 
       window.removeEventListener(
         "focus",
-        handleFocus,
+        handleStateChange,
       );
 
       window.removeEventListener(
         "online",
-        handleOnline,
+        handleStateChange,
       );
 
       window.removeEventListener(
         "offline",
-        handleOffline,
+        handleStateChange,
       );
     };
   }, [
@@ -282,33 +272,47 @@ export default function QueuePage() {
     refreshConnectivity,
   ]);
 
-
-  
   async function retryCase(
-    caseId: string,
+    caseId:
+      string,
   ) {
     if (sendingId) {
       return;
     }
 
-    setMessage(null);
+    setMessage(
+      null,
+    );
 
-
-    
-
-    const latestConnectivity =
+    const latest =
       await checkConnectivity();
 
+    /*
+     * local-only به دلیل device_not_registered
+     * مانع manual retry نیست؛ syncCase خودش
+     * Device را register می‌کند.
+     */
     if (
-      !latestConnectivity.canUpload
+      !latest.backendConfigured ||
+      !latest.backendReachable ||
+      latest.mode ===
+        "offline"
     ) {
       await refreshConnectivity();
 
       setMessage(
-        latestConnectivity.mode ===
-          "local-only"
-          ? "اینترنت برقرار است، اما Backend هنوز متصل نشده است. اطلاعات در صف محلی باقی می‌ماند."
-          : "اتصال برای ارسال تصاویر مناسب نیست. اطلاعات در صف باقی می‌ماند و بعداً دوباره ارسال می‌شود.",
+        "Backend در دسترس نیست. Case در صف باقی می‌ماند و بعداً خودکار ارسال خواهد شد.",
+      );
+
+      return;
+    }
+
+    if (
+      latest.mode ===
+      "weak"
+    ) {
+      setMessage(
+        "اتصال شبکه ضعیف است. برای جلوگیری از ارسال ناقص تصاویر، Case در صف باقی می‌ماند.",
       );
 
       return;
@@ -319,19 +323,12 @@ export default function QueuePage() {
         caseId,
       );
 
- 
-      
-      await updateCaseStatus(
-        caseId,
-        "queued",
-      );
-
       await syncCase(
         caseId,
       );
 
       setMessage(
-        "ارسال با موفقیت انجام شد.",
+        "اطلاعات و تصاویر با موفقیت به سرور ارسال شدند.",
       );
     } catch (
       error
@@ -342,7 +339,7 @@ export default function QueuePage() {
       );
 
       setMessage(
-        "ارسال انجام نشد. اطلاعات و تصاویر روی دستگاه محفوظ هستند و در صف ارسال باقی می‌مانند.",
+        "ارسال کامل نشد. اطلاعات و تصاویر روی دستگاه محفوظ هستند و در صف ارسال باقی می‌مانند.",
       );
     } finally {
       setSendingId(
@@ -355,19 +352,18 @@ export default function QueuePage() {
     }
   }
 
-  
-
   async function handleRefresh() {
-    setMessage(null);
+    setMessage(
+      null,
+    );
 
     await Promise.all([
       loadQueue(),
+
       refreshConnectivity(),
     ]);
   }
 
-
-  
   return (
     <div
       className="
@@ -376,9 +372,6 @@ export default function QueuePage() {
         pt-5
       "
     >
-  
-  
-
       <header
         className="
           flex
@@ -417,16 +410,15 @@ export default function QueuePage() {
               text-slate-500
             "
           >
-            تصاویر و اطلاعاتی که
-            هنوز ارسال نشده‌اند روی
-            همین دستگاه نگهداری
-            می‌شوند.
+            اطلاعات و تصاویر ابتدا روی
+            دستگاه ذخیره می‌شوند و زمانی
+            که اتصال مناسب باشد به سرور
+            ارسال خواهند شد.
           </p>
         </div>
 
         <NetworkPill />
       </header>
-
 
       {connectivity.mode ===
         "checking" && (
@@ -453,33 +445,16 @@ export default function QueuePage() {
           />
 
           <div>
-            <p
-              className="
-                text-sm
-                font-bold
-                text-slate-900
-              "
-            >
+            <p className="text-sm font-bold text-slate-900">
               در حال بررسی اتصال
             </p>
 
-            <p
-              className="
-                mt-1
-                text-xs
-                leading-6
-                text-slate-500
-              "
-            >
-              وضعیت شبکه و امکان ارسال
-              بررسی می‌شود.
+            <p className="mt-1 text-xs leading-6 text-slate-500">
+              وضعیت اینترنت و Backend در حال بررسی است.
             </p>
           </div>
         </div>
       )}
-
-    
-
 
       {connectivity.mode ===
         "online" && (
@@ -505,54 +480,28 @@ export default function QueuePage() {
           />
 
           <div>
-            <p
-              className="
-                text-sm
-                font-bold
-                text-emerald-900
-              "
-            >
-              اتصال مناسب برای ارسال
+            <p className="text-sm font-bold text-emerald-900">
+              آنلاین و آماده ارسال
             </p>
 
-            <p
-              className="
-                mt-1
-                text-xs
-                leading-6
-                text-emerald-800
-              "
-            >
-              اینترنت و سرویس مقصد در
-              دسترس هستند. موارد موجود
-              در صف به‌صورت خودکار برای
-              ارسال تلاش می‌شوند.
+            <p className="mt-1 text-xs leading-6 text-emerald-800">
+              Backend در دسترس است و Device احراز شده است.
+              موارد موجود در صف به‌صورت خودکار ارسال می‌شوند.
             </p>
 
             {connectivity.probeLatencyMs !==
               undefined && (
-              <p
-                className="
-                  mt-2
-                  text-[11px]
-                  text-emerald-700
-                "
-              >
-                زمان پاسخ اتصال:{" "}
-                {
-                  connectivity.probeLatencyMs
-                }{" "}
-                ms
+              <p className="mt-2 text-[11px] text-emerald-700">
+                پاسخ سرور:{" "}
+                {connectivity.probeLatencyMs} ms
               </p>
             )}
           </div>
         </div>
       )}
 
-      {(connectivity.mode ===
-        "offline" ||
-        connectivity.mode ===
-          "weak") && (
+      {connectivity.mode ===
+        "weak" && (
         <div
           className="
             mt-6
@@ -575,47 +524,50 @@ export default function QueuePage() {
           />
 
           <div>
-            <p
-              className="
-                text-sm
-                font-bold
-                text-amber-900
-              "
-            >
-              حالت آفلاین
+            <p className="text-sm font-bold text-amber-900">
+              اتصال ضعیف
             </p>
 
-            <p
-              className="
-                mt-1
-                text-xs
-                leading-6
-                text-amber-800
-              "
-            >
-              اتصال قطع است یا برای
-              ارسال تصاویر مناسب نیست.
-              می‌توانید تصویربرداری را
-              ادامه دهید؛ تصاویر روی
-              دستگاه ذخیره می‌شوند و
-              در صف باقی می‌مانند.
+            <p className="mt-1 text-xs leading-6 text-amber-800">
+              Backend در دسترس است، اما کیفیت شبکه برای Upload تصاویر مناسب
+              تشخیص داده نشده است. موارد در صف باقی می‌مانند.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {connectivity.mode ===
+        "offline" && (
+        <div
+          className="
+            mt-6
+            flex
+            gap-3
+            rounded-2xl
+            border
+            border-amber-100
+            bg-amber-50
+            p-4
+          "
+        >
+          <CloudOff
+            size={20}
+            className="
+              mt-0.5
+              shrink-0
+              text-amber-700
+            "
+          />
+
+          <div>
+            <p className="text-sm font-bold text-amber-900">
+              آفلاین
             </p>
 
-            {connectivity.mode ===
-              "weak" && (
-              <p
-                className="
-                  mt-2
-                  text-[11px]
-                  font-medium
-                  text-amber-700
-                "
-              >
-                اتصال شناسایی شده اما
-                برای Upload مطمئن کافی
-                نیست.
-              </p>
-            )}
+            <p className="mt-1 text-xs leading-6 text-amber-800">
+              فعلاً ارسال ممکن نیست. اطلاعات و تصاویر روی دستگاه باقی
+              می‌مانند و پس از برگشت اتصال دوباره ارسال خواهند شد.
+            </p>
           </div>
         </div>
       )}
@@ -644,36 +596,17 @@ export default function QueuePage() {
           />
 
           <div>
-            <p
-              className="
-                text-sm
-                font-bold
-                text-sky-900
-              "
-            >
-              ذخیره محلی فعال است
+            <p className="text-sm font-bold text-sky-900">
+              ذخیره محلی
             </p>
 
-            <p
-              className="
-                mt-1
-                text-xs
-                leading-6
-                text-sky-800
-              "
-            >
-              اینترنت برقرار است اما
-              Backend هنوز به برنامه
-              متصل نشده است. تصاویر و
-              اطلاعات روی دستگاه باقی
-              می‌مانند تا اتصال Backend
-              فعال شود.
+            <p className="mt-1 text-xs leading-6 text-sky-800">
+              اطلاعات روی دستگاه ذخیره شده‌اند. اتصال Device به Backend
+              در اولین فرصت انجام خواهد شد.
             </p>
           </div>
         </div>
       )}
-
-      {/* Message */}
 
       {message && (
         <div
@@ -694,8 +627,6 @@ export default function QueuePage() {
         </div>
       )}
 
-      {/* Queue title */}
-
       <div
         className="
           mt-5
@@ -713,18 +644,10 @@ export default function QueuePage() {
         >
           <UploadCloud
             size={20}
-            className="
-              text-slate-700
-            "
+            className="text-slate-700"
           />
 
-          <h2
-            className="
-              text-sm
-              font-bold
-              text-slate-900
-            "
-          >
+          <h2 className="text-sm font-bold text-slate-900">
             در انتظار ارسال
 
             {!loading &&
@@ -741,9 +664,7 @@ export default function QueuePage() {
                     text-slate-600
                   "
                 >
-                  {
-                    queuedCases.length
-                  }
+                  {queuedCases.length}
                 </span>
               )}
           </h2>
@@ -768,7 +689,6 @@ export default function QueuePage() {
             border-slate-200
             bg-white
             text-slate-600
-            transition
             active:scale-95
             disabled:opacity-50
           "
@@ -784,305 +704,237 @@ export default function QueuePage() {
         </button>
       </div>
 
-      {/* Loading */}
-
       {loading && (
-        <div
-          className="
-            mt-4
-            rounded-2xl
-            border
-            border-slate-200
-            bg-white
-            p-5
-            text-center
-            text-sm
-            text-slate-500
-          "
-        >
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-center text-sm text-slate-500">
           در حال خواندن صف...
         </div>
       )}
 
-      {/* Empty */}
-
       {!loading &&
         queuedCases.length ===
           0 && (
-        <div
-          className="
-            mt-4
-            rounded-3xl
-            border
-            border-dashed
-            border-slate-300
-            bg-white
-            px-6
-            py-10
-            text-center
-          "
-        >
           <div
             className="
-              mx-auto
-              flex
-              size-14
-              items-center
-              justify-center
-              rounded-full
-              bg-emerald-50
-            "
-          >
-            <CheckCircle2
-              size={26}
-              className="
-                text-emerald-600
-              "
-            />
-          </div>
-
-          <p
-            className="
               mt-4
-              text-sm
-              font-bold
-              text-slate-900
+              rounded-3xl
+              border
+              border-dashed
+              border-slate-300
+              bg-white
+              px-6
+              py-10
+              text-center
             "
           >
-            صف خالی است
-          </p>
+            <div
+              className="
+                mx-auto
+                flex
+                size-14
+                items-center
+                justify-center
+                rounded-full
+                bg-emerald-50
+              "
+            >
+              <CheckCircle2
+                size={26}
+                className="text-emerald-600"
+              />
+            </div>
 
-          <p
-            className="
-              mt-2
-              text-xs
-              leading-6
-              text-slate-500
-            "
-          >
-            موردی در انتظار ارسال
-            وجود ندارد.
-          </p>
-        </div>
-      )}
+            <p className="mt-4 text-sm font-bold text-slate-900">
+              صف خالی است
+            </p>
 
-      {/* Queue */}
+            <p className="mt-2 text-xs leading-6 text-slate-500">
+              همه موارد قابل ارسال، ارسال شده‌اند.
+            </p>
+          </div>
+        )}
 
       {!loading &&
         queuedCases.length >
           0 && (
-        <div
-          className="
-            mt-4
-            space-y-3
-          "
-        >
-          {queuedCases.map(
-            (
-              airwayCase,
-            ) => {
-              const patientName =
-                airwayCase
-                  .clinical
-                  .fullName ??
-                airwayCase.caseCode;
+          <div className="mt-4 space-y-3">
+            {queuedCases.map(
+              (
+                airwayCase,
+              ) => {
+                const patientName =
+                  airwayCase
+                    .clinical
+                    .fullName ??
+                  airwayCase.caseCode;
 
-              const isSending =
-                sendingId ===
-                airwayCase.id;
+                const isSending =
+                  sendingId ===
+                  airwayCase.id;
 
-              return (
-                <article
-                  key={
-                    airwayCase.id
-                  }
-                  className="
-                    rounded-2xl
-                    border
-                    border-slate-200
-                    bg-white
-                    p-4
-                    shadow-sm
-                  "
-                >
-                  <div
+                const canRetry =
+                  airwayCase.syncStatus !==
+                  "syncing";
+
+                return (
+                  <article
+                    key={
+                      airwayCase.id
+                    }
                     className="
-                      flex
-                      items-start
-                      justify-between
-                      gap-4
+                      rounded-2xl
+                      border
+                      border-slate-200
+                      bg-white
+                      p-4
+                      shadow-sm
                     "
                   >
                     <div
                       className="
-                        min-w-0
+                        flex
+                        items-start
+                        justify-between
+                        gap-4
                       "
                     >
-                      <p
-                        className="
-                          truncate
-                          text-sm
-                          font-bold
-                          text-slate-900
-                        "
-                      >
-                        {
-                          patientName
-                        }
-                      </p>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-900">
+                          {patientName}
+                        </p>
 
-                      <p
-                        className="
-                          mt-1
-                          text-[11px]
-                          font-medium
-                          text-slate-400
-                        "
-                        dir="ltr"
-                      >
-                        {
-                          airwayCase.caseCode
-                        }
-                      </p>
+                        <p
+                          className="mt-1 text-[11px] font-medium text-slate-400"
+                          dir="ltr"
+                        >
+                          {airwayCase.caseCode}
+                        </p>
 
-                      <div
-                        className="
-                          mt-2
-                          flex
-                          items-center
-                          gap-1.5
-                          text-xs
-                          text-slate-500
-                        "
-                      >
-                        <Clock3
-                          size={14}
-                        />
+                        <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                          <Clock3
+                            size={14}
+                          />
 
-                        {new Intl.DateTimeFormat(
-                          "fa-IR",
-                          {
-                            dateStyle:
-                              "medium",
+                          {new Intl.DateTimeFormat(
+                            "fa-IR",
+                            {
+                              dateStyle:
+                                "medium",
 
-                            timeStyle:
-                              "short",
-                          },
-                        ).format(
-                          new Date(
-                            airwayCase.updatedAt,
-                          ),
-                        )}
+                              timeStyle:
+                                "short",
+                            },
+                          ).format(
+                            new Date(
+                              airwayCase.updatedAt,
+                            ),
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    <span
-                      className={`
-                        inline-flex
-                        shrink-0
-                        items-center
-                        gap-1
-                        rounded-full
-                        px-3
-                        py-1.5
-                        text-[11px]
-                        font-bold
-                        ${getStatusClass(
+                      <span
+                        className={`
+                          inline-flex
+                          shrink-0
+                          items-center
+                          gap-1
+                          rounded-full
+                          px-3
+                          py-1.5
+                          text-[11px]
+                          font-bold
+                          ${getStatusClass(
+                            airwayCase.syncStatus,
+                          )}
+                        `}
+                      >
+                        {airwayCase.syncStatus ===
+                          "syncing" && (
+                          <LoaderCircle
+                            size={12}
+                            className="animate-spin"
+                          />
+                        )}
+
+                        {getStatusLabel(
                           airwayCase.syncStatus,
                         )}
-                      `}
-                    >
-                      {airwayCase.syncStatus ===
-                        "syncing" && (
-                        <LoaderCircle
-                          size={12}
-                          className="
-                            animate-spin
-                          "
-                        />
-                      )}
+                      </span>
+                    </div>
 
-                      {getStatusLabel(
-                        airwayCase.syncStatus,
-                      )}
-                    </span>
-                  </div>
+                    {canRetry && (
+                      <button
+                        type="button"
+                        disabled={
+                          Boolean(
+                            sendingId,
+                          )
+                        }
+                        onClick={() =>
+                          void retryCase(
+                            airwayCase.id,
+                          )
+                        }
+                        className="
+                          mt-4
+                          flex
+                          min-h-11
+                          w-full
+                          items-center
+                          justify-center
+                          gap-2
+                          rounded-xl
+                          bg-sky-700
+                          px-4
+                          text-xs
+                          font-bold
+                          text-white
+                          active:scale-[0.99]
+                          disabled:opacity-60
+                        "
+                      >
+                        {isSending ? (
+                          <LoaderCircle
+                            size={16}
+                            className="animate-spin"
+                          />
+                        ) : (
+                          <UploadCloud
+                            size={16}
+                          />
+                        )}
 
-                  {airwayCase.syncStatus ===
-                    "failed" && (
-                    <button
-                      type="button"
-                      disabled={
-                        isSending
-                      }
-                      onClick={() =>
-                        void retryCase(
-                          airwayCase.id,
-                        )
-                      }
+                        {airwayCase.syncStatus ===
+                          "failed"
+                          ? "تلاش مجدد"
+                          : "ارسال الآن"}
+                      </button>
+                    )}
+
+                    <Link
+                      href={`/cases/${airwayCase.id}/capture`}
                       className="
-                        mt-4
+                        mt-3
                         flex
                         min-h-11
                         w-full
                         items-center
                         justify-center
-                        gap-2
                         rounded-xl
-                        bg-sky-700
-                        px-4
+                        border
+                        border-slate-200
                         text-xs
                         font-bold
-                        text-white
-                        transition
-                        active:scale-[0.99]
-                        disabled:opacity-60
+                        text-slate-700
                       "
                     >
-                      {isSending ? (
-                        <LoaderCircle
-                          size={16}
-                          className="
-                            animate-spin
-                          "
-                        />
-                      ) : (
-                        <UploadCloud
-                          size={16}
-                        />
-                      )}
-
-                      تلاش مجدد برای ارسال
-                    </button>
-                  )}
-
-                  <Link
-                    href={`/cases/${airwayCase.id}/capture`}
-                    className="
-                      mt-3
-                      flex
-                      min-h-11
-                      w-full
-                      items-center
-                      justify-center
-                      rounded-xl
-                      border
-                      border-slate-200
-                      text-xs
-                      font-bold
-                      text-slate-700
-                      transition
-                      active:bg-slate-50
-                    "
-                  >
-                    مشاهده Case
-                  </Link>
-                </article>
-              );
-            },
-          )}
-        </div>
-      )}
+                      مشاهده Case
+                    </Link>
+                  </article>
+                );
+              },
+            )}
+          </div>
+        )}
     </div>
   );
 }

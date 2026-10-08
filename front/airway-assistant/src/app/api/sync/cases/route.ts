@@ -6,31 +6,62 @@ import type {
   AirwayCase,
 } from "@/lib/domain/types";
 
-
 export const runtime =
   "nodejs";
 
 export const dynamic =
   "force-dynamic";
 
-
 const REQUEST_TIMEOUT_MS =
   10_000;
 
+function getBackendBaseUrl():
+  | string
+  | null {
+  const raw =
+    process.env
+      .BACKEND_API_URL
+      ?.trim();
 
-function getBackendBaseUrl() {
-  return process.env
-    .BACKEND_API_URL
-    ?.trim()
-    .replace(
-      /\/+$/,
-      "",
-    );
+  if (!raw) {
+    return null;
+  }
+
+  const normalized =
+    raw
+      .replace(
+        /\\/g,
+        "",
+      )
+      .replace(
+        /\/+$/,
+        "",
+      );
+
+  try {
+    const url =
+      new URL(
+        normalized,
+      );
+
+    if (
+      url.protocol !==
+        "http:" &&
+      url.protocol !==
+        "https:"
+    ) {
+      return null;
+    }
+
+    return normalized;
+  } catch {
+    return null;
+  }
 }
 
-
 function backendHeaders(
-  token: string,
+  token:
+    string,
   json = false,
 ) {
   const headers =
@@ -56,9 +87,9 @@ function backendHeaders(
   return headers;
 }
 
-
 async function fetchWithTimeout(
-  url: string,
+  url:
+    string,
   init:
     RequestInit,
 ) {
@@ -92,7 +123,6 @@ async function fetchWithTimeout(
   }
 }
 
-
 async function readPayload(
   response:
     Response,
@@ -116,10 +146,13 @@ async function readPayload(
   }
 }
 
-
 function mapSex(
   sex:
-    AirwayCase["clinical"]["sex"],
+    AirwayCase[
+      "clinical"
+    ][
+      "sex"
+    ],
 ) {
   switch (sex) {
     case "male":
@@ -135,10 +168,13 @@ function mapSex(
   }
 }
 
-
 function mapNeckMovement(
   status:
-    AirwayCase["clinical"]["headRotationStatus"],
+    AirwayCase[
+      "clinical"
+    ][
+      "headRotationStatus"
+    ],
 ) {
   switch (status) {
     case "complete":
@@ -154,11 +190,13 @@ function mapNeckMovement(
   }
 }
 
-
-
+/* -------------------------------------------------------------------------- */
+/* Connectivity                                                               */
+/* -------------------------------------------------------------------------- */
 
 export async function GET(
-  request: Request,
+  request:
+    Request,
 ) {
   const backendUrl =
     getBackendBaseUrl();
@@ -179,77 +217,24 @@ export async function GET(
     });
   }
 
+  const token =
+    request.headers
+      .get(
+        "x-device-token",
+      )
+      ?.trim();
+
   try {
-    const healthResponse =
-      await fetchWithTimeout(
-        `${backendUrl}/api/health/`,
-        {
-          method:
-            "GET",
-
-          headers: {
-            Accept:
-              "application/json",
-          },
-        },
-      );
-
-    const healthPayload =
-      await readPayload(
-        healthResponse,
-      );
-
-    if (
-      !healthResponse.ok
-    ) {
-      return NextResponse.json({
-        configured:
-          true,
-
-        reachable:
-          false,
-
-        databaseReady:
-          false,
-
-        authenticated:
-          false,
-
-        backendStatus:
-          healthResponse.status,
-
-        health:
-          healthPayload,
-      });
-    }
-
-    const token =
-      request.headers
-        .get(
-          "x-device-token",
-        )
-        ?.trim();
-
-    if (!token) {
-      return NextResponse.json({
-        configured:
-          true,
-
-        reachable:
-          true,
-
-        databaseReady:
-          true,
-
-        authenticated:
-          false,
-
-        health:
-          healthPayload,
-      });
-    }
-
-    const authResponse =
+    /*
+     * Backend فعلی /api/health/ ندارد.
+     *
+     * بنابراین endpoint واقعی assessments
+     * را probe می‌کنیم.
+     *
+     * بدون token معمولاً 401 طبیعی است و
+     * یعنی Django در دسترس است.
+     */
+    const response =
       await fetchWithTimeout(
         `${backendUrl}/api/assessments/`,
         {
@@ -257,36 +242,58 @@ export async function GET(
             "GET",
 
           headers:
-            backendHeaders(
-              token,
-            ),
+            token
+              ? backendHeaders(
+                  token,
+                )
+              : {
+                  Accept:
+                    "application/json",
+                },
         },
       );
+
+    const status =
+      response.status;
+
+    const reachable =
+      response.ok ||
+      status === 401 ||
+      status === 403;
+
+    /*
+     * وقتی token داریم، authentication
+     * برای بررسی Device به DB دسترسی می‌زند.
+     *
+     * بنابراین 200/401/403 نشان می‌دهد Django
+     * حداقل توانسته request را پردازش کند.
+     *
+     * بدون token، 401 الزاماً DB را تست نمی‌کند.
+     */
+    const databaseReady =
+      Boolean(
+        token,
+      ) &&
+      reachable;
 
     return NextResponse.json({
       configured:
         true,
 
-      reachable:
-        true,
+      reachable,
 
-      databaseReady:
-        true,
+      databaseReady,
 
       authenticated:
-        authResponse.ok,
+        response.ok,
 
-      authStatus:
-        authResponse.status,
-
-      health:
-        healthPayload,
+      status,
     });
   } catch (
     error
   ) {
     console.error(
-      "Backend health probe failed:",
+      "Backend connectivity probe failed:",
       error,
     );
 
@@ -306,8 +313,9 @@ export async function GET(
   }
 }
 
-
-
+/* -------------------------------------------------------------------------- */
+/* Sync case metadata                                                         */
+/* -------------------------------------------------------------------------- */
 
 export async function POST(
   request:
@@ -362,7 +370,8 @@ export async function POST(
   try {
     const body =
       (await request.json()) as {
-        case?: AirwayCase;
+        case?:
+          AirwayCase;
       };
 
     const airwayCase =
@@ -390,13 +399,18 @@ export async function POST(
       airwayCase.clinical;
 
     if (
-      !clinical.fullName ||
+      !clinical.fullName
+        ?.trim() ||
       clinical.ageYears ===
         undefined ||
       clinical.heightCm ===
         undefined ||
       clinical.weightKg ===
-        undefined
+        undefined ||
+      !clinical
+        .headRotationStatus ||
+      clinical.sex ===
+        "unknown"
     ) {
       return NextResponse.json(
         {
@@ -415,6 +429,33 @@ export async function POST(
       );
     }
 
+    const assessmentPayload = {
+      full_name:
+        clinical.fullName.trim(),
+
+      age:
+        clinical.ageYears,
+
+      sex:
+        mapSex(
+          clinical.sex,
+        ),
+
+      height_cm:
+        clinical.heightCm,
+
+      weight_kg:
+        clinical.weightKg,
+
+      neck_movement:
+        mapNeckMovement(
+          clinical.headRotationStatus,
+        ),
+
+      created_at:
+        airwayCase.createdAt,
+    };
+
     const response =
       await fetchWithTimeout(
         `${backendUrl}/api/assessments/${airwayCase.id}/`,
@@ -429,32 +470,9 @@ export async function POST(
             ),
 
           body:
-            JSON.stringify({
-              full_name:
-                clinical.fullName,
-
-              age:
-                clinical.ageYears,
-
-              sex:
-                mapSex(
-                  clinical.sex,
-                ),
-
-              height_cm:
-                clinical.heightCm,
-
-              weight_kg:
-                clinical.weightKg,
-
-              neck_movement:
-                mapNeckMovement(
-                  clinical.headRotationStatus,
-                ),
-
-              created_at:
-                airwayCase.createdAt,
-            }),
+            JSON.stringify(
+              assessmentPayload,
+            ),
         },
       );
 
@@ -463,7 +481,9 @@ export async function POST(
         response,
       );
 
-    if (!response.ok) {
+    if (
+      !response.ok
+    ) {
       return NextResponse.json(
         {
           success:
@@ -496,7 +516,8 @@ export async function POST(
         airwayCase.id,
 
       receivedAt:
-        new Date().toISOString(),
+        new Date()
+          .toISOString(),
     });
   } catch (
     error

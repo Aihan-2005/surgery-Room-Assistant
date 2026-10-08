@@ -17,17 +17,64 @@ interface RegistrationInput {
   doctor_name?: unknown;
 }
 
-function getBackendBaseUrl() {
-  return process.env
-    .BACKEND_API_URL
-    ?.replace(
-      /\/+$/,
-      "",
-    );
+interface ErrorPayload {
+  code?: string;
+
+  detail?: string;
+}
+
+function getBackendBaseUrl():
+  | string
+  | null {
+  const raw =
+    process.env
+      .BACKEND_API_URL
+      ?.trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  /*
+   * اگر مقدار env اشتباهاً به‌شکل
+   * https\://...
+   * وارد شده باشد هم اصلاح می‌کنیم.
+   */
+  const normalized =
+    raw
+      .replace(
+        /\\/g,
+        "",
+      )
+      .replace(
+        /\/+$/,
+        "",
+      );
+
+  try {
+    const url =
+      new URL(
+        normalized,
+      );
+
+    if (
+      url.protocol !==
+        "http:" &&
+      url.protocol !==
+        "https:"
+    ) {
+      return null;
+    }
+
+    return normalized;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(
-  request: Request,
+  request:
+    Request,
 ) {
   const backendUrl =
     getBackendBaseUrl();
@@ -39,7 +86,7 @@ export async function POST(
           "BACKEND_NOT_CONFIGURED",
 
         detail:
-          "BACKEND_API_URL تنظیم نشده است.",
+          "BACKEND_API_URL تنظیم نشده یا معتبر نیست.",
       },
       {
         status: 503,
@@ -57,6 +104,9 @@ export async function POST(
   } catch {
     return NextResponse.json(
       {
+        code:
+          "INVALID_REQUEST",
+
         detail:
           "درخواست معتبر نیست.",
       },
@@ -69,10 +119,13 @@ export async function POST(
   if (
     typeof input.device_id !==
       "string" ||
-    !input.device_id
+    !input.device_id.trim()
   ) {
     return NextResponse.json(
       {
+        code:
+          "DEVICE_ID_REQUIRED",
+
         detail:
           "device_id الزامی است.",
       },
@@ -89,6 +142,9 @@ export async function POST(
   ) {
     return NextResponse.json(
       {
+        code:
+          "DOCTOR_NAME_REQUIRED",
+
         detail:
           "doctor_name الزامی است.",
       },
@@ -127,39 +183,38 @@ export async function POST(
           body:
             JSON.stringify({
               device_id:
-                input.device_id,
+                input.device_id.trim(),
 
               doctor_name:
                 input.doctor_name.trim(),
             }),
 
-          signal:
-            controller.signal,
-
           cache:
             "no-store",
+
+          signal:
+            controller.signal,
         },
       );
 
-    const responseText =
+    const text =
       await response.text();
 
     let payload:
-      unknown;
+      unknown = {};
 
-    try {
-      payload =
-        responseText
-          ? JSON.parse(
-              responseText,
-            )
-          : {};
-    } catch {
-      payload = {
-        detail:
-          responseText ||
-          "Backend response invalid.",
-      };
+    if (text) {
+      try {
+        payload =
+          JSON.parse(
+            text,
+          ) as unknown;
+      } catch {
+        payload = {
+          detail:
+            text,
+        };
+      }
     }
 
     return NextResponse.json(
@@ -177,11 +232,17 @@ export async function POST(
       error,
     );
 
+    const payload:
+      ErrorPayload = {
+      code:
+        "BACKEND_UNREACHABLE",
+
+      detail:
+        "ارتباط با Backend برقرار نشد.",
+    };
+
     return NextResponse.json(
-      {
-        detail:
-          "ارتباط با Backend برقرار نشد.",
-      },
+      payload,
       {
         status: 502,
       },

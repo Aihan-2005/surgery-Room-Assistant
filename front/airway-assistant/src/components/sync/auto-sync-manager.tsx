@@ -29,10 +29,8 @@ import {
   useConnectivity,
 } from "@/components/connectivity/connectivity-provider";
 
-
 const AUTO_SYNC_INTERVAL_MS =
-  15_000;
-
+  12_000;
 
 export function AutoSyncManager() {
   const {
@@ -44,10 +42,12 @@ export function AutoSyncManager() {
   const runningRef =
     useRef(false);
 
-
   const processQueue =
     useCallback(
       async () => {
+        /*
+         * جلوگیری از اجرای همزمان چند sync.
+         */
         if (
           runningRef.current
         ) {
@@ -58,14 +58,32 @@ export function AutoSyncManager() {
           true;
 
         try {
+          /*
+           * این component فقط سمت Browser اجرا می‌شود،
+           * اما باز هم برای اطمینان check می‌کنیم.
+           */
           if (
             typeof navigator ===
-              "undefined" ||
-            !navigator.onLine
+              "undefined"
           ) {
             return;
           }
 
+          /*
+           * اگر Browser صراحتاً offline است،
+           * هیچ درخواست شبکه‌ای نمی‌زنیم.
+           */
+          if (
+            navigator.onLine ===
+            false
+          ) {
+            return;
+          }
+
+          /*
+           * تا وقتی نام پزشک روی دستگاه ثبت نشده،
+           * چیزی برای register/sync نداریم.
+           */
           const profile =
             getOperatorProfile();
 
@@ -73,17 +91,21 @@ export function AutoSyncManager() {
             return;
           }
 
+          /*
+           * وضعیت واقعی Backend را بررسی می‌کنیم.
+           */
           let latest =
             await checkConnectivity();
 
-
           /*
-           * اینترنت و Backend داریم،
-           * ولی Device هنوز register نشده.
+           * اگر Backend در دسترس است ولی Device
+           * هنوز token ندارد، در پس‌زمینه register شود.
+           *
+           * همچنین اگر token قبلی دیگر معتبر نیست،
+           * Device ID جدید ساخته و دوباره register می‌شود.
            */
           if (
             latest.backendReachable &&
-            latest.databaseReady &&
             (
               !profile.deviceToken ||
               latest.reason ===
@@ -91,16 +113,18 @@ export function AutoSyncManager() {
             )
           ) {
             try {
-              await ensureOperatorRegistered({
-                force:
-                  latest.reason ===
-                  "device_unauthorized",
-              });
+              await ensureOperatorRegistered(
+                {
+                  force:
+                    latest.reason ===
+                    "device_unauthorized",
+                },
+              );
             } catch (
               error
             ) {
               console.warn(
-                "Background device registration failed:",
+                "Automatic device registration failed:",
                 error,
               );
 
@@ -109,23 +133,31 @@ export function AutoSyncManager() {
               return;
             }
 
+            /*
+             * بعد از registration وضعیت اتصال
+             * باید دوباره بررسی شود چون حالا token داریم.
+             */
             await refresh();
 
             latest =
               await checkConnectivity();
           }
 
-
+          /*
+           * فقط وقتی واقعاً امکان Upload داریم
+           * وارد Queue می‌شویم.
+           */
           if (
             !latest.canUpload
           ) {
             return;
           }
 
-
           /*
-           * اگر اپ وسط upload بسته شده بود،
-           * syncing قبلی را recover کن.
+           * اگر اپ در upload قبلی بسته شده باشد،
+           * ممکن است Case روی syncing باقی مانده باشد.
+           *
+           * آن‌ها را دوباره queued می‌کنیم.
            */
           const allCases =
             await getAllCases();
@@ -145,28 +177,39 @@ export function AutoSyncManager() {
             }
           }
 
-
-          const queued =
+          /*
+           * تمام Caseهای در صف را از IndexedDB بخوان.
+           */
+          const queuedCases =
             (
               await getQueuedCases()
             ).sort(
               (
-                a,
-                b,
+                first,
+                second,
               ) =>
                 new Date(
-                  a.updatedAt,
+                  first.updatedAt,
                 ).getTime() -
                 new Date(
-                  b.updatedAt,
+                  second.updatedAt,
                 ).getTime(),
             );
 
-
+          /*
+           * Caseها یکی‌یکی ارسال می‌شوند.
+           *
+           * این مهم است چون نمی‌خواهیم چند Case
+           * با تصاویر زیاد همزمان upload شوند.
+           */
           for (
             const airwayCase of
-            queued
+            queuedCases
           ) {
+            /*
+             * قبل از هر Case دوباره وضعیت شبکه
+             * را بررسی می‌کنیم.
+             */
             const beforeUpload =
               await checkConnectivity();
 
@@ -184,15 +227,23 @@ export function AutoSyncManager() {
               error
             ) {
               console.warn(
-                "Automatic sync paused:",
+                "Automatic case sync paused:",
                 error,
               );
 
+              /*
+               * اگر اولین upload شکست خورد،
+               * روی همین اتصال بقیه Queue را
+               * پشت سر هم fail نمی‌کنیم.
+               */
               break;
             }
           }
 
-
+          /*
+           * بعد از sync وضعیت Online/Offline
+           * و Authentication دوباره refresh شود.
+           */
           await refresh();
         } finally {
           runningRef.current =
@@ -204,11 +255,17 @@ export function AutoSyncManager() {
       ],
     );
 
-
   useEffect(() => {
+    /*
+     * بلافاصله بعد از mount یک بار تلاش می‌کنیم.
+     */
     void processQueue();
 
-    const interval =
+    /*
+     * حتی اگر event شبکه‌ای نیاید،
+     * هر 12 ثانیه Queue بررسی می‌شود.
+     */
+    const intervalId =
       window.setInterval(
         () => {
           void processQueue();
@@ -216,27 +273,72 @@ export function AutoSyncManager() {
         AUTO_SYNC_INTERVAL_MS,
       );
 
-
+    /*
+     * اینترنت برگشت:
+     * فوراً Queue بررسی شود.
+     */
     const handleOnline =
       () => {
         void processQueue();
       };
 
+    /*
+     * کاربر دوباره برگشت داخل برنامه:
+     * Queue دوباره بررسی شود.
+     */
+    const handleFocus =
+      () => {
+        void processQueue();
+      };
+
+    /*
+     * مخصوص PWA / موبایل:
+     * وقتی برنامه دوباره visible شد،
+     * sync بررسی شود.
+     */
+    const handleVisibilityChange =
+      () => {
+        if (
+          document.visibilityState ===
+          "visible"
+        ) {
+          void processQueue();
+        }
+      };
 
     window.addEventListener(
       "online",
       handleOnline,
     );
 
+    window.addEventListener(
+      "focus",
+      handleFocus,
+    );
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange,
+    );
 
     return () => {
       window.clearInterval(
-        interval,
+        intervalId,
       );
 
       window.removeEventListener(
         "online",
         handleOnline,
+      );
+
+      window.removeEventListener(
+        "focus",
+        handleFocus,
+      );
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
       );
     };
   }, [
@@ -245,6 +347,9 @@ export function AutoSyncManager() {
     connectivity.reason,
   ]);
 
-
+  /*
+   * Manager فقط behavior دارد و UI ندارد.
+   */
   return null;
 }
+

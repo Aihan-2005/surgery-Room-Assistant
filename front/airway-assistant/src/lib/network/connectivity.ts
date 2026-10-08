@@ -2,14 +2,12 @@ import {
   getOperatorProfile,
 } from "@/lib/profile/operator-profile";
 
-
 export type ConnectivityMode =
   | "checking"
   | "online"
   | "weak"
   | "offline"
   | "local-only";
-
 
 export type ConnectivityReason =
   | "checking"
@@ -19,10 +17,8 @@ export type ConnectivityReason =
   | "connection_too_slow"
   | "backend_not_configured"
   | "backend_unreachable"
-  | "database_unavailable"
   | "device_not_registered"
   | "device_unauthorized";
-
 
 export interface ConnectivitySnapshot {
   mode:
@@ -68,7 +64,6 @@ export interface ConnectivitySnapshot {
     string;
 }
 
-
 interface BrowserNetworkInformation
   extends EventTarget {
   effectiveType?:
@@ -84,7 +79,6 @@ interface BrowserNetworkInformation
     boolean;
 }
 
-
 interface NavigatorWithConnection
   extends Navigator {
   connection?:
@@ -97,8 +91,7 @@ interface NavigatorWithConnection
     BrowserNetworkInformation;
 }
 
-
-interface BackendHealthResponse {
+interface BackendProbeResponse {
   configured?:
     boolean;
 
@@ -111,23 +104,18 @@ interface BackendHealthResponse {
   authenticated?:
     boolean;
 
-  authStatus?:
+  status?:
     number;
 }
 
-
 const PROBE_TIMEOUT_MS =
-  6000;
-
-const WEAK_PROBE_LATENCY_MS =
-  3500;
+  8000;
 
 const WEAK_DOWNLINK_MBPS =
-  0.75;
+  0.5;
 
 const WEAK_RTT_MS =
-  1500;
-
+  2000;
 
 export function getBrowserConnection():
   | BrowserNetworkInformation
@@ -150,7 +138,6 @@ export function getBrowserConnection():
     null
   );
 }
-
 
 function weakConnection(
   connection:
@@ -187,7 +174,6 @@ function weakConnection(
   );
 }
 
-
 function snapshot(
   value:
     Omit<
@@ -199,10 +185,10 @@ function snapshot(
     ...value,
 
     checkedAt:
-      new Date().toISOString(),
+      new Date()
+        .toISOString(),
   };
 }
-
 
 export async function checkConnectivity():
   Promise<ConnectivitySnapshot> {
@@ -222,7 +208,6 @@ export async function checkConnectivity():
     saveData:
       connection?.saveData,
   };
-
 
   if (
     typeof navigator ===
@@ -257,7 +242,10 @@ export async function checkConnectivity():
     });
   }
 
-
+  /*
+   * navigator.onLine فقط اولین signal است.
+   * تصمیم نهایی با probe واقعی Backend است.
+   */
   if (
     navigator.onLine ===
     false
@@ -291,7 +279,6 @@ export async function checkConnectivity():
     });
   }
 
-
   const operator =
     getOperatorProfile();
 
@@ -308,7 +295,6 @@ export async function checkConnectivity():
   const startedAt =
     performance.now();
 
-
   try {
     const response =
       await fetch(
@@ -318,7 +304,8 @@ export async function checkConnectivity():
             "GET",
 
           headers:
-            operator?.deviceToken
+            operator
+              ?.deviceToken
               ? {
                   "X-Device-Token":
                     operator.deviceToken,
@@ -339,13 +326,49 @@ export async function checkConnectivity():
         startedAt,
       );
 
-    const health =
-      (await response.json()) as
-        BackendHealthResponse;
+    let probe:
+      BackendProbeResponse;
 
+    try {
+      probe =
+        (await response.json()) as
+          BackendProbeResponse;
+    } catch {
+      return snapshot({
+        mode:
+          "offline",
+
+        reason:
+          "probe_failed",
+
+        canUpload:
+          false,
+
+        internetReachable:
+          true,
+
+        backendConfigured:
+          true,
+
+        backendReachable:
+          false,
+
+        databaseReady:
+          false,
+
+        authenticated:
+          false,
+
+        probeLatencyMs:
+          latency,
+
+        ...common,
+      });
+    }
 
     if (
-      !health.configured
+      probe.configured !==
+      true
     ) {
       return snapshot({
         mode:
@@ -379,19 +402,16 @@ export async function checkConnectivity():
       });
     }
 
-
     if (
-      !health.reachable
+      probe.reachable !==
+      true
     ) {
       return snapshot({
         mode:
           "offline",
 
         reason:
-          health.databaseReady ===
-            false
-            ? "database_unavailable"
-            : "backend_unreachable",
+          "backend_unreachable",
 
         canUpload:
           false,
@@ -406,8 +426,7 @@ export async function checkConnectivity():
           false,
 
         databaseReady:
-          health.databaseReady ===
-          true,
+          false,
 
         authenticated:
           false,
@@ -419,49 +438,11 @@ export async function checkConnectivity():
       });
     }
 
-
-    if (
-      weakConnection(
-        connection,
-      ) ||
-      latency >=
-        WEAK_PROBE_LATENCY_MS
-    ) {
-      return snapshot({
-        mode:
-          "weak",
-
-        reason:
-          "connection_too_slow",
-
-        canUpload:
-          false,
-
-        internetReachable:
-          true,
-
-        backendConfigured:
-          true,
-
-        backendReachable:
-          true,
-
-        databaseReady:
-          health.databaseReady ===
-          true,
-
-        authenticated:
-          health.authenticated ===
-          true,
-
-        probeLatencyMs:
-          latency,
-
-        ...common,
-      });
-    }
-
-
+    /*
+     * هنوز token نداریم.
+     * اینترنت و Backend موجود هستند،
+     * AutoSync می‌تواند registration را انجام دهد.
+     */
     if (
       !operator ||
       !operator.deviceToken
@@ -486,6 +467,7 @@ export async function checkConnectivity():
           true,
 
         databaseReady:
+          probe.databaseReady ===
           true,
 
         authenticated:
@@ -498,9 +480,9 @@ export async function checkConnectivity():
       });
     }
 
-
     if (
-      !health.authenticated
+      probe.authenticated !==
+      true
     ) {
       return snapshot({
         mode:
@@ -522,6 +504,7 @@ export async function checkConnectivity():
           true,
 
         databaseReady:
+          probe.databaseReady ===
           true,
 
         authenticated:
@@ -534,6 +517,50 @@ export async function checkConnectivity():
       });
     }
 
+    /*
+     * فقط Network Information واقعی مرورگر
+     * را برای تشخیص اتصال ضعیف استفاده می‌کنیم.
+     *
+     * latency زیاد Vercel ممکن است صرفاً
+     * cold-start باشد و نباید کاربر را
+     * اشتباهاً Offline کند.
+     */
+    if (
+      weakConnection(
+        connection,
+      )
+    ) {
+      return snapshot({
+        mode:
+          "weak",
+
+        reason:
+          "connection_too_slow",
+
+        canUpload:
+          false,
+
+        internetReachable:
+          true,
+
+        backendConfigured:
+          true,
+
+        backendReachable:
+          true,
+
+        databaseReady:
+          true,
+
+        authenticated:
+          true,
+
+        probeLatencyMs:
+          latency,
+
+        ...common,
+      });
+    }
 
     return snapshot({
       mode:
@@ -576,8 +603,12 @@ export async function checkConnectivity():
       canUpload:
         false,
 
+      /*
+       * Browser می‌گوید online است،
+       * ولی Backend پاسخ نداده.
+       */
       internetReachable:
-        false,
+        navigator.onLine,
 
       backendConfigured:
         true,
@@ -599,7 +630,6 @@ export async function checkConnectivity():
     );
   }
 }
-
 
 export const INITIAL_CONNECTIVITY:
   ConnectivitySnapshot = {
