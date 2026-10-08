@@ -12,7 +12,6 @@ import {
 
 import {
   checkConnectivity,
-  getBrowserConnection,
   INITIAL_CONNECTIVITY,
   type ConnectivitySnapshot,
 } from "@/lib/network/connectivity";
@@ -22,7 +21,8 @@ interface ConnectivityContextValue {
     ConnectivitySnapshot;
 
   refresh:
-    () => Promise<void>;
+    () =>
+      Promise<ConnectivitySnapshot>;
 }
 
 const ConnectivityContext =
@@ -35,8 +35,14 @@ interface ConnectivityProviderProps {
     ReactNode;
 }
 
-const CHECK_INTERVAL_MS =
-  15_000;
+/*
+ * Heartbeat فقط برای UI است.
+ *
+ * eventهای online/focus/visibility
+ * تغییر اتصال را سریع‌تر می‌گیرند.
+ */
+const HEARTBEAT_INTERVAL_MS =
+  60_000;
 
 export function ConnectivityProvider({
   children,
@@ -49,32 +55,55 @@ export function ConnectivityProvider({
       INITIAL_CONNECTIVITY,
     );
 
-  const requestIdRef =
-    useRef(0);
-
   const mountedRef =
     useRef(true);
+
+  /*
+   * اگر چند component هم‌زمان refresh بخواهند،
+   * فقط یک health request واقعی ارسال شود.
+   */
+  const inFlightRef =
+    useRef<
+      Promise<ConnectivitySnapshot> | null
+    >(null);
 
   const refresh =
     useCallback(
       async () => {
-        const requestId =
-          ++requestIdRef.current;
-
-        const result =
-          await checkConnectivity();
-
         if (
-          !mountedRef.current ||
-          requestId !==
-            requestIdRef.current
+          inFlightRef.current
         ) {
-          return;
+          return inFlightRef.current;
         }
 
-        setConnectivity(
-          result,
-        );
+        const request =
+          checkConnectivity();
+
+        inFlightRef.current =
+          request;
+
+        try {
+          const result =
+            await request;
+
+          if (
+            mountedRef.current
+          ) {
+            setConnectivity(
+              result,
+            );
+          }
+
+          return result;
+        } finally {
+          if (
+            inFlightRef.current ===
+            request
+          ) {
+            inFlightRef.current =
+              null;
+          }
+        }
       },
       [],
     );
@@ -88,13 +117,31 @@ export function ConnectivityProvider({
     const intervalId =
       window.setInterval(
         () => {
-          void refresh();
+          /*
+           * وقتی tab/PWA hidden است،
+           * برای status UI heartbeat لازم نیست.
+           */
+          if (
+            document.visibilityState ===
+            "visible"
+          ) {
+            void refresh();
+          }
         },
-        CHECK_INTERVAL_MS,
+        HEARTBEAT_INTERVAL_MS,
       );
 
-    const handleNetworkChange =
+    const handleOnline =
       () => {
+        void refresh();
+      };
+
+    const handleOffline =
+      () => {
+        /*
+         * checkConnectivity در حالت offline
+         * هیچ request شبکه‌ای نمی‌زند.
+         */
         void refresh();
       };
 
@@ -115,12 +162,12 @@ export function ConnectivityProvider({
 
     window.addEventListener(
       "online",
-      handleNetworkChange,
+      handleOnline,
     );
 
     window.addEventListener(
       "offline",
-      handleNetworkChange,
+      handleOffline,
     );
 
     window.addEventListener(
@@ -133,14 +180,6 @@ export function ConnectivityProvider({
       handleVisibilityChange,
     );
 
-    const connection =
-      getBrowserConnection();
-
-    connection?.addEventListener(
-      "change",
-      handleNetworkChange,
-    );
-
     return () => {
       mountedRef.current =
         false;
@@ -151,12 +190,12 @@ export function ConnectivityProvider({
 
       window.removeEventListener(
         "online",
-        handleNetworkChange,
+        handleOnline,
       );
 
       window.removeEventListener(
         "offline",
-        handleNetworkChange,
+        handleOffline,
       );
 
       window.removeEventListener(
@@ -167,11 +206,6 @@ export function ConnectivityProvider({
       document.removeEventListener(
         "visibilitychange",
         handleVisibilityChange,
-      );
-
-      connection?.removeEventListener(
-        "change",
-        handleNetworkChange,
       );
     };
   }, [

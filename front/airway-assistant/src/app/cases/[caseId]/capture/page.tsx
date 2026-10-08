@@ -38,11 +38,15 @@ import {
 } from "@/lib/config/study-protocol";
 
 import {
-  finalizePreop,
   getCase,
   getPhotosByCase,
   savePhoto,
 } from "@/lib/db/database";
+
+import {
+  finalizeAndSyncCase,
+} from "@/lib/sync/finalize-and-sync-case";
+
 
 import type {
   AirwayCase,
@@ -553,60 +557,72 @@ export default function CapturePage() {
     }
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Finish capture                                                         */
-  /* ---------------------------------------------------------------------- */
+async function handleReady() {
+  if (
+    !isComplete
+  ) {
+    setError(
+      `برای هر پوزیشن حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
+    );
 
-  async function handleReady() {
+    return;
+  }
+
+  try {
+    setSubmitting(
+      true,
+    );
+
+    setError(
+      null,
+    );
+
+    const result =
+      await finalizeAndSyncCase(
+        caseId,
+      );
+
+    /*
+     * آنلاین و upload موفق:
+     * اصلاً Queue را به کاربر نشان نده.
+     */
     if (
-      !isComplete
+      result.state ===
+      "synced"
     ) {
-      setError(
-        `برای هر پوزیشن حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
+      router.replace(
+        "/cases",
       );
 
       return;
     }
 
-    try {
-      setSubmitting(
-        true,
-      );
+    /*
+     * Offline / Backend unavailable /
+     * خطای موقت:
+     *
+     * اطلاعات روی دستگاه محفوظ است.
+     */
+    router.replace(
+      "/queue",
+    );
+  } catch (
+    readyError
+  ) {
+    console.error(
+      "Failed to finalize capture:",
+      readyError,
+    );
 
-      setError(
-        null,
-      );
-
-      /*
-       * تصویربرداری تمام شده و Case
-       * مستقیم وارد صف ارسال می‌شود.
-       *
-       * Outcome دیگر وجود ندارد.
-       */
-      await finalizePreop(
-        caseId,
-      );
-
-      router.push(
-        "/queue",
-      );
-    } catch (
-      readyError
-    ) {
-      console.error(
-        "Failed to finalize capture:",
-        readyError,
-      );
-
-      setError(
-        "تکمیل تصویربرداری انجام نشد.",
-      );
-    } finally {
-      setSubmitting(
-        false,
-      );
-    }
+    setError(
+      "تکمیل تصویربرداری انجام نشد.",
+    );
+  } finally {
+    setSubmitting(
+      false,
+    );
   }
+}
 
   /* ---------------------------------------------------------------------- */
   /* Loading / missing                                                      */

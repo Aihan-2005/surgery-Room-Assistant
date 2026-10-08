@@ -17,6 +17,7 @@ export type ConnectivityReason =
   | "connection_too_slow"
   | "backend_not_configured"
   | "backend_unreachable"
+  | "database_unavailable"
   | "device_not_registered"
   | "device_unauthorized";
 
@@ -42,6 +43,10 @@ export interface ConnectivitySnapshot {
   databaseReady:
     boolean;
 
+  /*
+   * فقط نشان می‌دهد token محلی داریم.
+   * صحت نهایی token موقع sync بررسی می‌شود.
+   */
   authenticated:
     boolean;
 
@@ -101,21 +106,22 @@ interface BackendProbeResponse {
   databaseReady?:
     boolean;
 
-  authenticated?:
-    boolean;
-
-  status?:
+  backendStatus?:
     number;
 }
 
 const PROBE_TIMEOUT_MS =
-  8000;
+  6_000;
 
+/*
+ * فقط اتصال‌های واقعاً بد را weak
+ * در نظر می‌گیریم.
+ */
 const WEAK_DOWNLINK_MBPS =
   0.5;
 
 const WEAK_RTT_MS =
-  2000;
+  2_000;
 
 export function getBrowserConnection():
   | BrowserNetworkInformation
@@ -195,6 +201,14 @@ export async function checkConnectivity():
   const connection =
     getBrowserConnection();
 
+  const operator =
+    getOperatorProfile();
+
+  const hasDeviceToken =
+    Boolean(
+      operator?.deviceToken,
+    );
+
   const common = {
     effectiveType:
       connection?.effectiveType,
@@ -236,15 +250,15 @@ export async function checkConnectivity():
         false,
 
       authenticated:
-        false,
+        hasDeviceToken,
 
       ...common,
     });
   }
 
   /*
-   * navigator.onLine فقط اولین signal است.
-   * تصمیم نهایی با probe واقعی Backend است.
+   * اگر خود Browser قطع اینترنت را تشخیص داده،
+   * حتی health request هم ارسال نمی‌کنیم.
    */
   if (
     navigator.onLine ===
@@ -264,7 +278,7 @@ export async function checkConnectivity():
         false,
 
       backendConfigured:
-        false,
+        true,
 
       backendReachable:
         false,
@@ -273,22 +287,20 @@ export async function checkConnectivity():
         false,
 
       authenticated:
-        false,
+        hasDeviceToken,
 
       ...common,
     });
   }
-
-  const operator =
-    getOperatorProfile();
 
   const controller =
     new AbortController();
 
   const timeout =
     window.setTimeout(
-      () =>
-        controller.abort(),
+      () => {
+        controller.abort();
+      },
       PROBE_TIMEOUT_MS,
     );
 
@@ -298,19 +310,10 @@ export async function checkConnectivity():
   try {
     const response =
       await fetch(
-        `/api/sync/cases?probe=${Date.now()}`,
+        `/api/backend-health?probe=${Date.now()}`,
         {
           method:
             "GET",
-
-          headers:
-            operator
-              ?.deviceToken
-              ? {
-                  "X-Device-Token":
-                    operator.deviceToken,
-                }
-              : undefined,
 
           cache:
             "no-store",
@@ -323,48 +326,12 @@ export async function checkConnectivity():
     const latency =
       Math.round(
         performance.now() -
-        startedAt,
+          startedAt,
       );
 
-    let probe:
-      BackendProbeResponse;
-
-    try {
-      probe =
-        (await response.json()) as
-          BackendProbeResponse;
-    } catch {
-      return snapshot({
-        mode:
-          "offline",
-
-        reason:
-          "probe_failed",
-
-        canUpload:
-          false,
-
-        internetReachable:
-          true,
-
-        backendConfigured:
-          true,
-
-        backendReachable:
-          false,
-
-        databaseReady:
-          false,
-
-        authenticated:
-          false,
-
-        probeLatencyMs:
-          latency,
-
-        ...common,
-      });
-    }
+    const probe =
+      (await response.json()) as
+        BackendProbeResponse;
 
     if (
       probe.configured !==
@@ -393,7 +360,7 @@ export async function checkConnectivity():
           false,
 
         authenticated:
-          false,
+          hasDeviceToken,
 
         probeLatencyMs:
           latency,
@@ -429,49 +396,7 @@ export async function checkConnectivity():
           false,
 
         authenticated:
-          false,
-
-        probeLatencyMs:
-          latency,
-
-        ...common,
-      });
-    }
-
-    /*
-     * هنوز token نداریم.
-     * اینترنت و Backend موجود هستند،
-     * AutoSync می‌تواند registration را انجام دهد.
-     */
-    if (
-      !operator ||
-      !operator.deviceToken
-    ) {
-      return snapshot({
-        mode:
-          "local-only",
-
-        reason:
-          "device_not_registered",
-
-        canUpload:
-          false,
-
-        internetReachable:
-          true,
-
-        backendConfigured:
-          true,
-
-        backendReachable:
-          true,
-
-        databaseReady:
-          probe.databaseReady ===
-          true,
-
-        authenticated:
-          false,
+          hasDeviceToken,
 
         probeLatencyMs:
           latency,
@@ -481,15 +406,15 @@ export async function checkConnectivity():
     }
 
     if (
-      probe.authenticated !==
+      probe.databaseReady !==
       true
     ) {
       return snapshot({
         mode:
-          "local-only",
+          "offline",
 
         reason:
-          "device_unauthorized",
+          "database_unavailable",
 
         canUpload:
           false,
@@ -504,11 +429,10 @@ export async function checkConnectivity():
           true,
 
         databaseReady:
-          probe.databaseReady ===
-          true,
+          false,
 
         authenticated:
-          false,
+          hasDeviceToken,
 
         probeLatencyMs:
           latency,
@@ -518,12 +442,8 @@ export async function checkConnectivity():
     }
 
     /*
-     * فقط Network Information واقعی مرورگر
-     * را برای تشخیص اتصال ضعیف استفاده می‌کنیم.
-     *
-     * latency زیاد Vercel ممکن است صرفاً
-     * cold-start باشد و نباید کاربر را
-     * اشتباهاً Offline کند.
+     * اگر اتصال خیلی ضعیف باشد،
+     * برای تصاویر بزرگ فعلاً Queue بهتر است.
      */
     if (
       weakConnection(
@@ -553,7 +473,7 @@ export async function checkConnectivity():
           true,
 
         authenticated:
-          true,
+          hasDeviceToken,
 
         probeLatencyMs:
           latency,
@@ -562,6 +482,12 @@ export async function checkConnectivity():
       });
     }
 
+    /*
+     * وجود token شرط online بودن نیست.
+     *
+     * syncCase خودش در صورت نیاز Device را
+     * register/re-register می‌کند.
+     */
     return snapshot({
       mode:
         "online",
@@ -585,14 +511,21 @@ export async function checkConnectivity():
         true,
 
       authenticated:
-        true,
+        hasDeviceToken,
 
       probeLatencyMs:
         latency,
 
       ...common,
     });
-  } catch {
+  } catch (
+    error
+  ) {
+    console.warn(
+      "Connectivity probe failed:",
+      error,
+    );
+
     return snapshot({
       mode:
         "offline",
@@ -603,10 +536,6 @@ export async function checkConnectivity():
       canUpload:
         false,
 
-      /*
-       * Browser می‌گوید online است،
-       * ولی Backend پاسخ نداده.
-       */
       internetReachable:
         navigator.onLine,
 
@@ -620,7 +549,7 @@ export async function checkConnectivity():
         false,
 
       authenticated:
-        false,
+        hasDeviceToken,
 
       ...common,
     });

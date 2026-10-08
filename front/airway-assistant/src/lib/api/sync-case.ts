@@ -51,6 +51,24 @@ export class CaseSyncError
   }
 }
 
+/*
+ * هر Case در هر لحظه فقط یک upload واقعی دارد.
+ */
+const inFlightCaseSyncs =
+  new Map<
+    string,
+    Promise<CaseSyncResponse>
+  >();
+
+export function isCaseSyncInFlight(
+  caseId:
+    string,
+) {
+  return inFlightCaseSyncs.has(
+    caseId,
+  );
+}
+
 async function readResponse(
   response:
     Response,
@@ -219,10 +237,9 @@ async function uploadAttempt(
   token:
     string,
 ): Promise<CaseSyncResponse> {
-  /* ---------------------------------------------------------------------- */
-  /* 1. Patient / Assessment metadata                                       */
-  /* ---------------------------------------------------------------------- */
-
+  /*
+   * 1. Assessment metadata
+   */
   const metadataResponse =
     await fetch(
       "/api/sync/cases",
@@ -253,10 +270,14 @@ async function uploadAttempt(
     metadataResponse,
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* 2. Photos individually                                                 */
-  /* ---------------------------------------------------------------------- */
-
+  /*
+   * 2. تصاویر یکی‌یکی
+   *
+   * عمداً parallel نمی‌فرستیم تا:
+   * - RAM کمتر مصرف شود
+   * - فشار Backend کمتر باشد
+   * - روی موبایل قابل اعتمادتر باشد
+   */
   for (
     const photo of
     photos
@@ -304,10 +325,9 @@ async function uploadAttempt(
     );
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* 3. Complete                                                            */
-  /* ---------------------------------------------------------------------- */
-
+  /*
+   * 3. Complete
+   */
   const completeResponse =
     await fetch(
       `/api/sync/cases/${encodeURIComponent(
@@ -332,7 +352,7 @@ async function uploadAttempt(
   );
 }
 
-export async function syncCase(
+async function syncCaseInternal(
   caseId:
     string,
 ): Promise<CaseSyncResponse> {
@@ -398,9 +418,11 @@ export async function syncCase(
       firstError
     ) {
       /*
-       * Token قدیمی / حذف Device از سرور:
-       * یک بار Device جدید ثبت می‌کنیم
-       * و کل عملیات idempotent را retry می‌کنیم.
+       * اگر token قبلی دیگر معتبر نبود،
+       * فقط یک بار Device جدید register
+       * شده و عملیات retry می‌شود.
+       *
+       * PUTهای Backend idempotent هستند.
        */
       if (
         firstError instanceof
@@ -466,4 +488,40 @@ export async function syncCase(
   }
 }
 
+export function syncCase(
+  caseId:
+    string,
+): Promise<CaseSyncResponse> {
+  const existing =
+    inFlightCaseSyncs.get(
+      caseId,
+    );
 
+  if (existing) {
+    return existing;
+  }
+
+  const task =
+    syncCaseInternal(
+      caseId,
+    ).finally(
+      () => {
+        if (
+          inFlightCaseSyncs.get(
+            caseId,
+          ) === task
+        ) {
+          inFlightCaseSyncs.delete(
+            caseId,
+          );
+        }
+      },
+    );
+
+  inFlightCaseSyncs.set(
+    caseId,
+    task,
+  );
+
+  return task;
+}
