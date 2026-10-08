@@ -272,8 +272,11 @@ class CompleteTests(BaseAPITest):
         self.doctor = self.make_client()
         self.case_id, _ = self.put_case(self.doctor)
 
-    def test_no_photos_is_rejected(self):
-        self.assertEqual(self.complete(self.doctor, self.case_id).status_code, 400)
+    def test_a_case_with_no_photos_can_be_completed(self):
+        response = self.complete(self.doctor, self.case_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["is_complete"])
+        self.assertEqual(response.data["photo_count"], 0)
 
     def test_one_position_is_enough(self):
         self.upload_many(self.doctor, self.case_id, "front", 3)
