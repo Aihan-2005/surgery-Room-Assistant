@@ -16,3 +16,6 @@ staticfiles/
 backend/staticfiles/
 
 .DS_Store
+
+cert.crt
+cert.key
