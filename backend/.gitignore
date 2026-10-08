@@ -5,7 +5,7 @@ venv/
 .venv/
 __pycache__/
 *.pyc
-
+*.cpython-*.pyc
 .env
 db.sqlite3
 
