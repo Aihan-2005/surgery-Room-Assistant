@@ -26,6 +26,7 @@ import {
 import type {
   BiologicalSex,
   HeadRotationStatus,
+  YesNoUnknown,
 } from "@/lib/domain/types";
 
 import {
@@ -38,7 +39,8 @@ type FormField =
   | "sex"
   | "height"
   | "weight"
-  | "headRotation";
+  | "headRotation"
+  | "priorDifficultIntubation";
 
 type FieldErrors =
   Partial<
@@ -56,6 +58,7 @@ const FIELD_ORDER:
     "height",
     "weight",
     "headRotation",
+    "priorDifficultIntubation",
   ];
 
 export default function NewCasePage() {
@@ -124,14 +127,26 @@ export default function NewCasePage() {
       HeadRotationStatus | null
     >(null);
 
+  const [
+    priorDifficultIntubation,
+    setPriorDifficultIntubation,
+  ] =
+    useState<
+      YesNoUnknown | null
+    >(null);
+
   function clearFieldError(
     field:
       FormField,
   ) {
     setFieldErrors(
-      (current) => {
+      (
+        current,
+      ) => {
         if (
-          !current[field]
+          !current[
+            field
+          ]
         ) {
           return current;
         }
@@ -148,7 +163,9 @@ export default function NewCasePage() {
       },
     );
 
-    setError(null);
+    setError(
+      null,
+    );
   }
 
   function focusFirstError(
@@ -157,9 +174,13 @@ export default function NewCasePage() {
   ) {
     const firstField =
       FIELD_ORDER.find(
-        (field) =>
+        (
+          field,
+        ) =>
           Boolean(
-            errors[field],
+            errors[
+              field
+            ],
           ),
       );
 
@@ -193,7 +214,9 @@ export default function NewCasePage() {
   ) {
     event.preventDefault();
 
-    setError(null);
+    setError(
+      null,
+    );
 
     const errors:
       FieldErrors = {};
@@ -218,7 +241,9 @@ export default function NewCasePage() {
         age,
       );
 
-    if (!age.trim()) {
+    if (
+      !age.trim()
+    ) {
       errors.age =
         "سن بیمار را وارد کنید.";
     } else if (
@@ -232,7 +257,8 @@ export default function NewCasePage() {
     }
 
     if (
-      sex === "unknown"
+      sex ===
+      "unknown"
     ) {
       errors.sex =
         "جنسیت بیمار را انتخاب کنید.";
@@ -251,7 +277,7 @@ export default function NewCasePage() {
     } else if (
       heightCm ===
         undefined ||
-      heightCm <= 0 ||
+      heightCm < 30 ||
       heightCm > 250
     ) {
       errors.height =
@@ -271,7 +297,7 @@ export default function NewCasePage() {
     } else if (
       weightKg ===
         undefined ||
-      weightKg <= 0 ||
+      weightKg < 1 ||
       weightKg > 500
     ) {
       errors.weight =
@@ -286,9 +312,17 @@ export default function NewCasePage() {
     }
 
     if (
+      !priorDifficultIntubation
+    ) {
+      errors.priorDifficultIntubation =
+        "سابقه انتوباسیون سخت را مشخص کنید.";
+    }
+
+    if (
       Object.keys(
         errors,
-      ).length > 0
+      ).length >
+      0
     ) {
       setFieldErrors(
         errors,
@@ -305,8 +339,6 @@ export default function NewCasePage() {
       return;
     }
 
-
-    
     if (
       ageYears ===
         undefined ||
@@ -314,7 +346,8 @@ export default function NewCasePage() {
         undefined ||
       weightKg ===
         undefined ||
-      !headRotationStatus
+      !headRotationStatus ||
+      !priorDifficultIntubation
     ) {
       return;
     }
@@ -349,9 +382,6 @@ export default function NewCasePage() {
             neckRotationDegrees:
               undefined,
 
-            /*
-             * از UI حذف شده‌اند.
-             */
             mallampatiClass:
               "unknown",
 
@@ -379,8 +409,7 @@ export default function NewCasePage() {
             prominentUpperIncisors:
               "unknown",
 
-            priorDifficultIntubation:
-              "unknown",
+            priorDifficultIntubation,
           },
         });
 
@@ -396,7 +425,7 @@ export default function NewCasePage() {
 
       const message =
         caughtError instanceof
-        Error
+          Error
           ? caughtError.message
           : "";
 
@@ -406,24 +435,16 @@ export default function NewCasePage() {
         case "PATIENT_NAME_REQUIRED":
           setFieldErrors({
             fullName:
-              "نام و نام خانوادگی بیمار را وارد کنید.",
+              "نام بیمار الزامی است.",
           });
-
-          setError(
-            "نام بیمار الزامی است.",
-          );
           break;
 
         case "AGE_REQUIRED":
         case "INVALID_AGE":
           setFieldErrors({
             age:
-              "سن بیمار را به‌درستی وارد کنید.",
+              "سن بیمار معتبر نیست.",
           });
-
-          setError(
-            "اطلاعات بیمار کامل نیست.",
-          );
           break;
 
         case "SEX_REQUIRED":
@@ -431,34 +452,22 @@ export default function NewCasePage() {
             sex:
               "جنسیت بیمار را انتخاب کنید.",
           });
-
-          setError(
-            "اطلاعات بیمار کامل نیست.",
-          );
           break;
 
         case "HEIGHT_REQUIRED":
         case "INVALID_HEIGHT":
           setFieldErrors({
             height:
-              "قد بیمار را به‌درستی وارد کنید.",
+              "قد بیمار معتبر نیست.",
           });
-
-          setError(
-            "اطلاعات بیمار کامل نیست.",
-          );
           break;
 
         case "WEIGHT_REQUIRED":
         case "INVALID_WEIGHT":
           setFieldErrors({
             weight:
-              "وزن بیمار را به‌درستی وارد کنید.",
+              "وزن بیمار معتبر نیست.",
           });
-
-          setError(
-            "اطلاعات بیمار کامل نیست.",
-          );
           break;
 
         case "HEAD_ROTATION_REQUIRED":
@@ -466,10 +475,6 @@ export default function NewCasePage() {
             headRotation:
               "وضعیت چرخش سر را مشخص کنید.",
           });
-
-          setError(
-            "اطلاعات بیمار کامل نیست.",
-          );
           break;
 
         case "OPERATOR_PROFILE_REQUIRED":
@@ -533,6 +538,41 @@ export default function NewCasePage() {
     `;
   }
 
+  function optionClass(
+    selected:
+      boolean,
+    invalid:
+      boolean,
+  ) {
+    if (
+      selected
+    ) {
+      return `
+        border-sky-600
+        bg-sky-50
+        text-sky-800
+        ring-2
+        ring-sky-100
+      `;
+    }
+
+    if (
+      invalid
+    ) {
+      return `
+        border-red-300
+        bg-red-50/40
+        text-slate-700
+      `;
+    }
+
+    return `
+      border-slate-200
+      bg-white
+      text-slate-700
+    `;
+  }
+
   return (
     <div
       className="
@@ -558,7 +598,6 @@ export default function NewCasePage() {
             border-slate-200
             bg-white
             text-slate-700
-            transition
             active:scale-95
           "
         >
@@ -567,7 +606,9 @@ export default function NewCasePage() {
           />
         </button>
 
-        <div className="mt-5">
+        <div
+          className="mt-5"
+        >
           <p
             className="
               text-xs
@@ -597,9 +638,8 @@ export default function NewCasePage() {
               text-slate-500
             "
           >
-            برای ورود به مرحله
-            تصویربرداری، تمام اطلاعات
-            این صفحه باید تکمیل شوند.
+            برای ورود به مرحله تصویربرداری،
+            تمام اطلاعات الزامی را تکمیل کنید.
           </p>
         </div>
       </header>
@@ -634,12 +674,9 @@ export default function NewCasePage() {
               gap-y-4
             "
           >
-            {/* Patient name */}
-
             <div
               className="
                 col-span-2
-                min-w-0
               "
             >
               <label
@@ -649,7 +686,6 @@ export default function NewCasePage() {
                 }
               >
                 نام و نام خانوادگی بیمار
-
                 <span
                   className="
                     mr-1
@@ -670,22 +706,11 @@ export default function NewCasePage() {
                   submitting
                 }
                 autoComplete="off"
-                aria-invalid={
-                  Boolean(
-                    fieldErrors.fullName,
-                  )
-                }
-                aria-describedby={
-                  fieldErrors.fullName
-                    ? "fullName-error"
-                    : undefined
-                }
                 onChange={(
                   event,
                 ) => {
                   setFullName(
-                    event.target
-                      .value,
+                    event.target.value,
                   );
 
                   clearFieldError(
@@ -704,7 +729,6 @@ export default function NewCasePage() {
 
               {fieldErrors.fullName && (
                 <p
-                  id="fullName-error"
                   className="
                     mt-2
                     text-xs
@@ -719,9 +743,7 @@ export default function NewCasePage() {
               )}
             </div>
 
-            {/* Age */}
-
-            <div className="min-w-0">
+            <div>
               <label
                 htmlFor="age"
                 className={
@@ -729,7 +751,6 @@ export default function NewCasePage() {
                 }
               >
                 سن
-
                 <span
                   className="
                     mr-1
@@ -742,7 +763,9 @@ export default function NewCasePage() {
 
               <NumericInput
                 id="age"
-                value={age}
+                value={
+                  age
+                }
                 onChange={(
                   value,
                 ) => {
@@ -765,20 +788,13 @@ export default function NewCasePage() {
                     fieldErrors.age,
                   )
                 }
-                ariaDescribedBy={
-                  fieldErrors.age
-                    ? "age-error"
-                    : undefined
-                }
               />
 
               {fieldErrors.age && (
                 <p
-                  id="age-error"
                   className="
                     mt-2
                     text-xs
-                    font-medium
                     text-red-600
                   "
                 >
@@ -789,9 +805,7 @@ export default function NewCasePage() {
               )}
             </div>
 
-            {/* Sex */}
-
-            <div className="min-w-0">
+            <div>
               <label
                 htmlFor="sex"
                 className={
@@ -799,7 +813,6 @@ export default function NewCasePage() {
                 }
               >
                 جنسیت
-
                 <span
                   className="
                     mr-1
@@ -812,26 +825,19 @@ export default function NewCasePage() {
 
               <select
                 id="sex"
-                value={sex}
+                value={
+                  sex
+                }
                 disabled={
                   submitting
-                }
-                aria-invalid={
-                  Boolean(
-                    fieldErrors.sex,
-                  )
-                }
-                aria-describedby={
-                  fieldErrors.sex
-                    ? "sex-error"
-                    : undefined
                 }
                 onChange={(
                   event,
                 ) => {
                   setSex(
                     event.target
-                      .value as BiologicalSex,
+                      .value as
+                      BiologicalSex,
                   );
 
                   clearFieldError(
@@ -846,26 +852,30 @@ export default function NewCasePage() {
                   )
                 }
               >
-                <option value="unknown">
+                <option
+                  value="unknown"
+                >
                   انتخاب کنید
                 </option>
 
-                <option value="male">
+                <option
+                  value="male"
+                >
                   مرد
                 </option>
 
-                <option value="female">
+                <option
+                  value="female"
+                >
                   زن
                 </option>
               </select>
 
               {fieldErrors.sex && (
                 <p
-                  id="sex-error"
                   className="
                     mt-2
                     text-xs
-                    font-medium
                     text-red-600
                   "
                 >
@@ -876,9 +886,7 @@ export default function NewCasePage() {
               )}
             </div>
 
-            {/* Height */}
-
-            <div className="min-w-0">
+            <div>
               <label
                 htmlFor="height"
                 className={
@@ -886,7 +894,6 @@ export default function NewCasePage() {
                 }
               >
                 قد
-
                 <span
                   className="
                     mr-1
@@ -924,20 +931,13 @@ export default function NewCasePage() {
                     fieldErrors.height,
                   )
                 }
-                ariaDescribedBy={
-                  fieldErrors.height
-                    ? "height-error"
-                    : undefined
-                }
               />
 
               {fieldErrors.height && (
                 <p
-                  id="height-error"
                   className="
                     mt-2
                     text-xs
-                    font-medium
                     text-red-600
                   "
                 >
@@ -948,9 +948,7 @@ export default function NewCasePage() {
               )}
             </div>
 
-            {/* Weight */}
-
-            <div className="min-w-0">
+            <div>
               <label
                 htmlFor="weight"
                 className={
@@ -958,7 +956,6 @@ export default function NewCasePage() {
                 }
               >
                 وزن
-
                 <span
                   className="
                     mr-1
@@ -996,20 +993,13 @@ export default function NewCasePage() {
                     fieldErrors.weight,
                   )
                 }
-                ariaDescribedBy={
-                  fieldErrors.weight
-                    ? "weight-error"
-                    : undefined
-                }
               />
 
               {fieldErrors.weight && (
                 <p
-                  id="weight-error"
                   className="
                     mt-2
                     text-xs
-                    font-medium
                     text-red-600
                   "
                 >
@@ -1022,12 +1012,15 @@ export default function NewCasePage() {
           </div>
         </section>
 
-
-
         <section
           id="headRotation"
           tabIndex={-1}
           className="
+            rounded-3xl
+            border
+            border-slate-200
+            bg-white
+            p-4
             outline-none
           "
         >
@@ -1057,18 +1050,6 @@ export default function NewCasePage() {
             </span>
           </div>
 
-          <p
-            className="
-              mt-2
-              text-xs
-              leading-6
-              text-slate-500
-            "
-          >
-            یکی از دو وضعیت زیر را
-            حتماً مشخص کنید.
-          </p>
-
           <div
             className="
               mt-4
@@ -1077,97 +1058,72 @@ export default function NewCasePage() {
               gap-3
             "
           >
-            <button
-              type="button"
-              disabled={
-                submitting
-              }
-              onClick={() => {
-                setHeadRotationStatus(
+            {(
+              [
+                [
                   "complete",
-                );
-
-                clearFieldError(
-                  "headRotation",
-                );
-              }}
-              className={`
-                flex
-                min-h-20
-                items-center
-                justify-center
-                gap-2
-                rounded-2xl
-                border
-                px-3
-                text-sm
-                font-bold
-                transition
-                ${
-                  headRotationStatus ===
-                  "complete"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-100"
-                    : fieldErrors.headRotation
-                      ? "border-red-300 bg-red-50/40 text-slate-700"
-                      : "border-slate-200 bg-white text-slate-700"
-                }
-              `}
-            >
-              {headRotationStatus ===
-                "complete" && (
-                <Check
-                  size={18}
-                />
-              )}
-
-              چرخش کامل
-            </button>
-
-            <button
-              type="button"
-              disabled={
-                submitting
-              }
-              onClick={() => {
-                setHeadRotationStatus(
+                  "چرخش کامل",
+                ],
+                [
                   "incomplete",
-                );
+                  "چرخش ناکامل",
+                ],
+              ] as const
+            ).map(
+              ([
+                value,
+                label,
+              ]) => (
+                <button
+                  key={
+                    value
+                  }
+                  type="button"
+                  disabled={
+                    submitting
+                  }
+                  onClick={() => {
+                    setHeadRotationStatus(
+                      value,
+                    );
 
-                clearFieldError(
-                  "headRotation",
-                );
-              }}
-              className={`
-                flex
-                min-h-20
-                items-center
-                justify-center
-                gap-2
-                rounded-2xl
-                border
-                px-3
-                text-sm
-                font-bold
-                transition
-                ${
-                  headRotationStatus ===
-                  "incomplete"
-                    ? "border-amber-500 bg-amber-50 text-amber-800 ring-2 ring-amber-100"
-                    : fieldErrors.headRotation
-                      ? "border-red-300 bg-red-50/40 text-slate-700"
-                      : "border-slate-200 bg-white text-slate-700"
-                }
-              `}
-            >
-              {headRotationStatus ===
-                "incomplete" && (
-                <Check
-                  size={18}
-                />
-              )}
+                    clearFieldError(
+                      "headRotation",
+                    );
+                  }}
+                  className={`
+                    flex
+                    min-h-16
+                    items-center
+                    justify-center
+                    gap-2
+                    rounded-2xl
+                    border
+                    px-3
+                    text-sm
+                    font-bold
+                    ${optionClass(
+                      headRotationStatus ===
+                        value,
+                      Boolean(
+                        fieldErrors.headRotation,
+                      ),
+                    )}
+                  `}
+                >
+                  {headRotationStatus ===
+                    value && (
+                    <Check
+                      size={18}
+                    />
+                  )}
 
-              چرخش ناکامل
-            </button>
+                  {
+                    label
+                  }
+                </button>
+              ),
+            )}
           </div>
 
           {fieldErrors.headRotation && (
@@ -1175,12 +1131,156 @@ export default function NewCasePage() {
               className="
                 mt-2
                 text-xs
-                font-medium
                 text-red-600
               "
             >
               {
                 fieldErrors.headRotation
+              }
+            </p>
+          )}
+        </section>
+
+        <section
+          id="priorDifficultIntubation"
+          tabIndex={-1}
+          className="
+            rounded-3xl
+            border
+            border-slate-200
+            bg-white
+            p-4
+            outline-none
+          "
+        >
+          <div
+            className="
+              flex
+              items-center
+              gap-1
+            "
+          >
+            <h2
+              className="
+                text-sm
+                font-bold
+                text-slate-900
+              "
+            >
+              سابقه انتوباسیون سخت
+            </h2>
+
+            <span
+              className="
+                text-red-500
+              "
+            >
+              *
+            </span>
+          </div>
+
+          <p
+            className="
+              mt-2
+              text-xs
+              leading-6
+              text-slate-500
+            "
+          >
+            آیا بیمار سابقه انتوباسیون
+            دشوار داشته است؟
+          </p>
+
+          <div
+            className="
+              mt-4
+              grid
+              grid-cols-3
+              gap-2
+            "
+          >
+            {(
+              [
+                [
+                  "yes",
+                  "آره",
+                ],
+                [
+                  "no",
+                  "خیر",
+                ],
+                [
+                  "unknown",
+                  "نمی‌دانم",
+                ],
+              ] as const
+            ).map(
+              ([
+                value,
+                label,
+              ]) => (
+                <button
+                  key={
+                    value
+                  }
+                  type="button"
+                  disabled={
+                    submitting
+                  }
+                  onClick={() => {
+                    setPriorDifficultIntubation(
+                      value,
+                    );
+
+                    clearFieldError(
+                      "priorDifficultIntubation",
+                    );
+                  }}
+                  className={`
+                    flex
+                    min-h-16
+                    items-center
+                    justify-center
+                    gap-1.5
+                    rounded-2xl
+                    border
+                    px-2
+                    text-xs
+                    font-bold
+                    ${optionClass(
+                      priorDifficultIntubation ===
+                        value,
+                      Boolean(
+                        fieldErrors.priorDifficultIntubation,
+                      ),
+                    )}
+                  `}
+                >
+                  {priorDifficultIntubation ===
+                    value && (
+                    <Check
+                      size={16}
+                    />
+                  )}
+
+                  {
+                    label
+                  }
+                </button>
+              ),
+            )}
+          </div>
+
+          {fieldErrors.priorDifficultIntubation && (
+            <p
+              className="
+                mt-2
+                text-xs
+                text-red-600
+              "
+            >
+              {
+                fieldErrors.priorDifficultIntubation
               }
             </p>
           )}
@@ -1196,12 +1296,13 @@ export default function NewCasePage() {
               bg-red-50
               p-4
               text-sm
-              font-medium
               leading-7
               text-red-700
             "
           >
-            {error}
+            {
+              error
+            }
           </div>
         )}
 
@@ -1222,12 +1323,7 @@ export default function NewCasePage() {
             px-5
             font-bold
             text-white
-            shadow-sm
-            transition
-            hover:bg-sky-800
-            disabled:cursor-not-allowed
             disabled:opacity-60
-            active:scale-[0.99]
           "
         >
           <ClipboardPlus
@@ -1242,3 +1338,4 @@ export default function NewCasePage() {
     </div>
   );
 }
+

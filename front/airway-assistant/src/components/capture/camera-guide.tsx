@@ -5,7 +5,8 @@ import type {
 } from "@/lib/config/capture-protocol";
 
 interface CameraGuideProps {
-  step: CaptureStep;
+  step:
+    CaptureStep;
 }
 
 export function CameraGuide({
@@ -15,11 +16,37 @@ export function CameraGuide({
     step.guide ===
       "mallampati" ||
     step.guide ===
-      "mouth-open";
+      "mouth-open" ||
+    step.guide ===
+      "upper-lip-bite";
 
   const isLateral =
     step.guide ===
-    "lateral";
+      "lateral" ||
+    step.guide ===
+      "head-back-side";
+
+  const isHeadBack =
+    step.guide ===
+    "head-back-side";
+
+  function getMouthLabel() {
+    switch (
+      step.guide
+    ) {
+      case "mallampati":
+        return "زبان بیرون";
+
+      case "mouth-open":
+        return "دهان باز";
+
+      case "upper-lip-bite":
+        return "گاز گرفتن لب بالا";
+
+      default:
+        return "";
+    }
+  }
 
   return (
     <div
@@ -90,7 +117,7 @@ export function CameraGuide({
                 left-1/2
                 flex
                 h-14
-                w-24
+                w-28
                 -translate-x-1/2
                 items-center
                 justify-center
@@ -99,19 +126,20 @@ export function CameraGuide({
                 border-dashed
                 border-amber-300
                 bg-amber-300/10
+                px-2
               "
             >
               <span
                 className="
+                  text-center
                   text-[10px]
                   font-bold
                   text-amber-200
                 "
               >
-                {step.guide ===
-                "mallampati"
-                  ? "زبان بیرون"
-                  : "دهان باز"}
+                {
+                  getMouthLabel()
+                }
               </span>
             </div>
           )}
@@ -133,7 +161,9 @@ export function CameraGuide({
                 backdrop-blur
               "
             >
-              نمای کامل کنار
+              {isHeadBack
+                ? "نمای کنار — سر به عقب"
+                : "نمای کامل کنار"}
             </div>
           )}
         </div>
@@ -154,7 +184,9 @@ export function CameraGuide({
             backdrop-blur
           "
         >
-          {step.liveInstruction}
+          {
+            step.liveInstruction
+          }
         </div>
       </div>
     </div>

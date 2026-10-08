@@ -13,14 +13,6 @@ export type SyncStatus =
   | "synced"
   | "failed";
 
-/**
- * Workflow جدید فقط دو مرحله اصلی دارد:
- *
- * 1. اطلاعات بیمار
- * 2. تصویربرداری
- *
- * Outcome دیگر بخشی از workflow نیست.
- */
 export type StudyStatus =
   | "preop_draft"
   | "preop_ready"
@@ -57,16 +49,10 @@ export type HeadRotationStatus =
 /* -------------------------------------------------------------------------- */
 
 export interface OperatorProfile {
-  /**
-   * شناسه یکتای local device/operator.
-   */
   id: string;
 
   fullName: string;
 
-  /**
-   * بعد از registration موفق Backend ایجاد می‌شود.
-   */
   deviceToken?: string;
 
   registeredAt?: string;
@@ -103,12 +89,9 @@ export type CaptureKind =
   | "front_neutral"
   | "mallampati"
   | "mouth_open"
+  | "upper_lip_bite_front"
   | "lateral_neutral"
-
-  /**
-   * فقط برای backward compatibility.
-   */
-  | "upper_lip_bite_front";
+  | "head_back_side";
 
 export type CaptureSource =
   | "camera"
@@ -119,7 +102,7 @@ export type CaptureSource =
   | "unknown";
 
 /* -------------------------------------------------------------------------- */
-/* Image quality                                                              */
+/* Image Quality                                                              */
 /* -------------------------------------------------------------------------- */
 
 export type ImageQualityFlag =
@@ -199,7 +182,7 @@ export interface ImageQualityMetrics {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Prepared image                                                             */
+/* Prepared Image                                                             */
 /* -------------------------------------------------------------------------- */
 
 export interface PreparedImage {
@@ -211,18 +194,14 @@ export interface PreparedImage {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Clinical assessment                                                        */
+/* Clinical Assessment                                                        */
 /* -------------------------------------------------------------------------- */
 
 export interface ClinicalAssessment {
-  /**
-   * برای Caseهای جدید در createCase الزامی است.
-   * Optional بودن type فقط برای داده‌های قدیمی است.
-   */
   fullName?: string;
 
-  /**
-   * Legacy fields.
+  /*
+   * Legacy compatibility.
    */
   firstName?: string;
 
@@ -236,23 +215,16 @@ export interface ClinicalAssessment {
 
   weightKg?: number;
 
-  /**
-   * Legacy field.
-   */
   neckMobility: NeckMobility;
 
   headRotationStatus?:
     HeadRotationStatus;
 
-  /**
-   * Legacy field.
+  /*
+   * Legacy compatibility.
    */
   neckRotationDegrees?: number;
 
-  /**
-   * این دو از فرم اطلاعات بیمار حذف شده‌اند
-   * ولی برای backward compatibility باقی مانده‌اند.
-   */
   mallampatiClass:
     MallampatiClass;
 
@@ -275,6 +247,14 @@ export interface ClinicalAssessment {
   prominentUpperIncisors:
     YesNoUnknown;
 
+  /**
+   * Backend:
+   * previous_difficult_intubation
+   *
+   * yes     → آره
+   * no      → خیر
+   * unknown → نمی‌دانم
+   */
   priorDifficultIntubation:
     YesNoUnknown;
 }
@@ -296,16 +276,8 @@ export interface ConsentRecord {
 /* -------------------------------------------------------------------------- */
 
 export interface AirwayCase {
-  /**
-   * UUID اصلی Case.
-   *
-   * همین UUID برای Assessment Backend استفاده می‌شود.
-   */
   id: string;
 
-  /**
-   * شناسه کوتاه برای نمایش.
-   */
   caseCode: string;
 
   protocolVersion: string;
@@ -328,7 +300,7 @@ export interface AirwayCase {
   syncStatus:
     SyncStatus;
 
-  /**
+  /*
    * Legacy compatibility.
    */
   heightCm?: number;
@@ -338,10 +310,6 @@ export interface AirwayCase {
   neckMobility?:
     NeckMobility;
 
-  /**
-   * بعد از تکمیل تمام عکس‌های الزامی،
-   * Case قفل می‌شود.
-   */
   preopLockedAt?: string;
 
   captureCompletedAt?: string;
@@ -356,12 +324,6 @@ export interface AirwayCase {
 /* -------------------------------------------------------------------------- */
 
 export interface StoredPhoto {
-  /**
-   * UUID عکس.
-   *
-   * همین UUID به Backend ارسال می‌شود تا
-   * retry باعث duplicate نشود.
-   */
   id: string;
 
   caseId: string;

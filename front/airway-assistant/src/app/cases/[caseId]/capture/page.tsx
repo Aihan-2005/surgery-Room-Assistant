@@ -34,6 +34,7 @@ import {
 } from "@/lib/config/capture-protocol";
 
 import {
+  MAX_PHOTOS_PER_POSITION,
   MIN_PHOTOS_PER_REQUIRED_POSITION,
 } from "@/lib/config/study-protocol";
 
@@ -46,7 +47,6 @@ import {
 import {
   finalizeAndSyncCase,
 } from "@/lib/sync/finalize-and-sync-case";
-
 
 import type {
   AirwayCase,
@@ -135,10 +135,6 @@ export default function CapturePage() {
       string | null
     >(null);
 
-  /* ---------------------------------------------------------------------- */
-  /* Preview URLs                                                           */
-  /* ---------------------------------------------------------------------- */
-
   const createPreviewUrl =
     useCallback(
       (
@@ -175,10 +171,6 @@ export default function CapturePage() {
       },
       [],
     );
-
-  /* ---------------------------------------------------------------------- */
-  /* Load                                                                   */
-  /* ---------------------------------------------------------------------- */
 
   const loadData =
     useCallback(
@@ -225,14 +217,13 @@ export default function CapturePage() {
           );
 
           const previews:
-            PhotosByKind =
-            {};
+            PhotosByKind = {};
 
           for (
             const photo of
             storedPhotos
           ) {
-            const isCurrentProtocol =
+            const valid =
               CAPTURE_PROTOCOL.some(
                 (
                   step,
@@ -242,7 +233,7 @@ export default function CapturePage() {
               );
 
             if (
-              !isCurrentProtocol
+              !valid
             ) {
               continue;
             }
@@ -338,10 +329,6 @@ export default function CapturePage() {
     };
   }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /* Progress                                                               */
-  /* ---------------------------------------------------------------------- */
-
   const requiredSteps =
     useMemo(
       () =>
@@ -388,6 +375,28 @@ export default function CapturePage() {
       ],
     );
 
+  const totalCapturedPhotos =
+    useMemo(
+      () =>
+        Object.values(
+          photos,
+        ).reduce(
+          (
+            total,
+            items,
+          ) =>
+            total +
+            (
+              items?.length ??
+              0
+            ),
+          0,
+        ),
+      [
+        photos,
+      ],
+    );
+
   const isComplete =
     requiredSteps.every(
       (
@@ -413,10 +422,6 @@ export default function CapturePage() {
         ?.preopLockedAt,
     );
 
-  /* ---------------------------------------------------------------------- */
-  /* Save photo                                                             */
-  /* ---------------------------------------------------------------------- */
-
   async function handlePhoto(
     kind:
       CaptureKind,
@@ -433,6 +438,24 @@ export default function CapturePage() {
     ) {
       setError(
         "تصویربرداری این Case قبلاً تکمیل شده است.",
+      );
+
+      return;
+    }
+
+    const currentCount =
+      photos[
+        kind
+      ]?.length ??
+      0;
+
+    if (
+      !replacePhotoId &&
+      currentCount >=
+        MAX_PHOTOS_PER_POSITION
+    ) {
+      setError(
+        `حداکثر ${MAX_PHOTOS_PER_POSITION} عکس برای هر پوزیشن مجاز است.`,
       );
 
       return;
@@ -467,7 +490,27 @@ export default function CapturePage() {
           const currentList =
             current[
               kind
-            ] ?? [];
+            ] ??
+            [];
+
+          const replaced =
+            replacePhotoId
+              ? currentList.find(
+                  (
+                    item,
+                  ) =>
+                    item.photo.id ===
+                    replacePhotoId,
+                )
+              : undefined;
+
+          if (
+            replaced
+          ) {
+            revokePreviewUrl(
+              replaced.url,
+            );
+          }
 
           const nextList =
             replacePhotoId
@@ -478,26 +521,7 @@ export default function CapturePage() {
                     item.photo.id !==
                     replacePhotoId,
                 )
-              : [
-                  ...currentList,
-                ];
-
-          const replaced =
-            currentList.find(
-              (
-                item,
-              ) =>
-                item.photo.id ===
-                replacePhotoId,
-            );
-
-          if (
-            replaced
-          ) {
-            revokePreviewUrl(
-              replaced.url,
-            );
-          }
+              : currentList;
 
           return {
             ...current,
@@ -557,76 +581,62 @@ export default function CapturePage() {
     }
   }
 
-async function handleReady() {
-  if (
-    !isComplete
-  ) {
-    setError(
-      `برای هر پوزیشن حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
-    );
-
-    return;
-  }
-
-  try {
-    setSubmitting(
-      true,
-    );
-
-    setError(
-      null,
-    );
-
-    const result =
-      await finalizeAndSyncCase(
-        caseId,
-      );
-
-    /*
-     * آنلاین و upload موفق:
-     * اصلاً Queue را به کاربر نشان نده.
-     */
+  async function handleReady() {
     if (
-      result.state ===
-      "synced"
+      !isComplete
     ) {
-      router.replace(
-        "/cases",
+      setError(
+        `برای هر یک از ${requiredSteps.length} پوزیشن، حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
       );
 
       return;
     }
 
-    /*
-     * Offline / Backend unavailable /
-     * خطای موقت:
-     *
-     * اطلاعات روی دستگاه محفوظ است.
-     */
-    router.replace(
-      "/queue",
-    );
-  } catch (
-    readyError
-  ) {
-    console.error(
-      "Failed to finalize capture:",
-      readyError,
-    );
+    try {
+      setSubmitting(
+        true,
+      );
 
-    setError(
-      "تکمیل تصویربرداری انجام نشد.",
-    );
-  } finally {
-    setSubmitting(
-      false,
-    );
+      setError(
+        null,
+      );
+
+      const result =
+        await finalizeAndSyncCase(
+          caseId,
+        );
+
+      if (
+        result.state ===
+        "synced"
+      ) {
+        router.replace(
+          "/cases",
+        );
+
+        return;
+      }
+
+      router.replace(
+        "/queue",
+      );
+    } catch (
+      readyError
+    ) {
+      console.error(
+        "Failed to finalize capture:",
+        readyError,
+      );
+
+      setError(
+        "تکمیل تصویربرداری انجام نشد.",
+      );
+    } finally {
+      setSubmitting(
+        false,
+      );
+    }
   }
-}
-
-  /* ---------------------------------------------------------------------- */
-  /* Loading / missing                                                      */
-  /* ---------------------------------------------------------------------- */
 
   if (
     loading
@@ -655,14 +665,15 @@ async function handleReady() {
     !airwayCase
   ) {
     return (
-      <div className="p-5">
+      <div
+        className="p-5"
+      >
         <div
           className="
             rounded-2xl
             bg-red-50
             p-4
             text-sm
-            leading-6
             text-red-700
           "
         >
@@ -675,17 +686,13 @@ async function handleReady() {
 
   const progress =
     requiredPhotoTotal ===
-    0
+      0
       ? 0
       : (
           completedPhotoTotal /
           requiredPhotoTotal
         ) *
         100;
-
-  /* ---------------------------------------------------------------------- */
-  /* Render                                                                 */
-  /* ---------------------------------------------------------------------- */
 
   return (
     <div
@@ -730,7 +737,9 @@ async function handleReady() {
           <NetworkPill />
         </div>
 
-        <div className="mt-5">
+        <div
+          className="mt-5"
+        >
           <p
             className="
               text-xs
@@ -760,11 +769,16 @@ async function handleReady() {
               text-slate-500
             "
           >
-            برای هر پوزیشن حداقل دو
-            تصویر استاندارد ثبت کنید.
-            پس از تکمیل تصاویر، Case
-            مستقیماً وارد صف ارسال
-            می‌شود.
+            هر ۶ پوزیشن را ثبت کنید.
+            برای هر پوزیشن حداقل{" "}
+            {
+              MIN_PHOTOS_PER_REQUIRED_POSITION
+            }{" "}
+            و حداکثر{" "}
+            {
+              MAX_PHOTOS_PER_POSITION
+            }{" "}
+            عکس قابل ثبت است.
           </p>
 
           <p
@@ -775,7 +789,6 @@ async function handleReady() {
             "
           >
             بیمار:{" "}
-
             <span
               className="
                 font-bold
@@ -791,8 +804,6 @@ async function handleReady() {
           </p>
         </div>
       </header>
-
-      {/* Progress */}
 
       <section
         className="
@@ -833,7 +844,7 @@ async function handleReady() {
                 text-slate-900
               "
             >
-              تصاویر الزامی
+              تکمیل پوزیشن‌ها
             </p>
           </div>
 
@@ -877,6 +888,21 @@ async function handleReady() {
           />
         </div>
 
+        <p
+          className="
+            mt-3
+            text-xs
+            text-slate-500
+          "
+        >
+          مجموع عکس‌های ثبت‌شده:{" "}
+          <strong>
+            {
+              totalCapturedPhotos
+            }
+          </strong>
+        </p>
+
         {isComplete && (
           <div
             className="
@@ -896,39 +922,13 @@ async function handleReady() {
               size={17}
             />
 
-            تمام تصاویر الزامی ثبت
-            شده‌اند.
-          </div>
-        )}
-
-        {captureLocked && (
-          <div
-            className="
-              mt-4
-              flex
-              items-center
-              gap-2
-              rounded-xl
-              bg-sky-50
-              px-3
-              py-2.5
-              text-xs
-              font-medium
-              text-sky-700
-            "
-          >
-            <CheckCircle2
-              size={17}
-            />
-
-            تصویربرداری این Case
-            تکمیل شده و در صف ارسال
-            قرار گرفته است.
+            هر ۶ پوزیشن تکمیل شده‌اند.
+            در صورت نیاز می‌توانید قبل
+            از نهایی‌سازی عکس‌های بیشتری
+            اضافه کنید.
           </div>
         )}
       </section>
-
-      {/* Capture cards */}
 
       <div
         className="
@@ -957,10 +957,14 @@ async function handleReady() {
               requiredPhotoCount={
                 MIN_PHOTOS_PER_REQUIRED_POSITION
               }
+              maxPhotoCount={
+                MAX_PHOTOS_PER_POSITION
+              }
               photos={(
                 photos[
                   step.kind
-                ] ?? []
+                ] ??
+                []
               ).map(
                 (
                   item,
@@ -994,8 +998,6 @@ async function handleReady() {
         )}
       </div>
 
-      {/* Save status */}
-
       {savingKind && (
         <div
           className="
@@ -1021,8 +1023,6 @@ async function handleReady() {
           دستگاه...
         </div>
       )}
-
-      {/* Offline notice */}
 
       <div
         className="
@@ -1050,16 +1050,13 @@ async function handleReady() {
             text-amber-800
           "
         >
-          در حالت آفلاین نیز تصاویر
-          داخل IndexedDB ذخیره می‌شوند.
-          بعد از تکمیل تصویربرداری،
-          Case در صف باقی می‌ماند و
-          هنگام مناسب‌شدن اتصال به
+          در حالت آفلاین تصاویر داخل
+          IndexedDB ذخیره می‌شوند.
+          بعد از تکمیل، Case در صف باقی
+          می‌ماند و در زمان مناسب به
           Backend ارسال می‌شود.
         </p>
       </div>
-
-      {/* Error */}
 
       {error && (
         <div
@@ -1074,11 +1071,11 @@ async function handleReady() {
             text-red-700
           "
         >
-          {error}
+          {
+            error
+          }
         </div>
       )}
-
-      {/* Finish */}
 
       {!captureLocked && (
         <button
@@ -1122,11 +1119,9 @@ async function handleReady() {
             />
           )}
 
-          {remoteLocked
-            ? "ارسال شده به سرور"
-            : submitting
-              ? "در حال افزودن به صف..."
-              : "تکمیل تصویربرداری و ارسال"}
+          {submitting
+            ? "در حال نهایی‌سازی..."
+            : "تکمیل تصویربرداری و ارسال"}
         </button>
       )}
 
@@ -1145,7 +1140,6 @@ async function handleReady() {
             w-full
             items-center
             justify-center
-            gap-2
             rounded-2xl
             bg-sky-700
             px-5
@@ -1159,4 +1153,3 @@ async function handleReady() {
     </div>
   );
 }
-

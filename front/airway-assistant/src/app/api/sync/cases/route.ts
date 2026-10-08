@@ -4,6 +4,7 @@ import {
 
 import type {
   AirwayCase,
+  YesNoUnknown,
 } from "@/lib/domain/types";
 
 export const runtime =
@@ -77,7 +78,9 @@ function backendHeaders(
     `Device ${token}`,
   );
 
-  if (json) {
+  if (
+    json
+  ) {
     headers.set(
       "Content-Type",
       "application/json",
@@ -130,7 +133,9 @@ async function readPayload(
   const text =
     await response.text();
 
-  if (!text) {
+  if (
+    !text
+  ) {
     return {};
   }
 
@@ -154,7 +159,9 @@ function mapSex(
       "sex"
     ],
 ) {
-  switch (sex) {
+  switch (
+    sex
+  ) {
     case "male":
       return "M";
 
@@ -176,7 +183,9 @@ function mapNeckMovement(
       "headRotationStatus"
     ],
 ) {
-  switch (status) {
+  switch (
+    status
+  ) {
     case "complete":
       return "normal";
 
@@ -190,10 +199,25 @@ function mapNeckMovement(
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Connectivity                                                               */
-/* -------------------------------------------------------------------------- */
+function normalizePreviousDifficultIntubation(
+  value:
+    YesNoUnknown | undefined,
+): YesNoUnknown {
+  switch (
+    value
+  ) {
+    case "yes":
+    case "no":
+    case "unknown":
+      return value;
 
+    default:
+  
+      return "unknown";
+  }
+}
+
+ 
 export async function GET(
   request:
     Request,
@@ -201,7 +225,9 @@ export async function GET(
   const backendUrl =
     getBackendBaseUrl();
 
-  if (!backendUrl) {
+  if (
+    !backendUrl
+  ) {
     return NextResponse.json({
       configured:
         false,
@@ -225,16 +251,63 @@ export async function GET(
       ?.trim();
 
   try {
-    /*
-     * Backend فعلی /api/health/ ندارد.
-     *
-     * بنابراین endpoint واقعی assessments
-     * را probe می‌کنیم.
-     *
-     * بدون token معمولاً 401 طبیعی است و
-     * یعنی Django در دسترس است.
-     */
-    const response =
+    const healthResponse =
+      await fetchWithTimeout(
+        `${backendUrl}/api/health/`,
+        {
+          method:
+            "GET",
+
+          headers: {
+            Accept:
+              "application/json",
+          },
+        },
+      );
+
+    if (
+      !healthResponse.ok
+    ) {
+      return NextResponse.json({
+        configured:
+          true,
+
+        reachable:
+          false,
+
+        databaseReady:
+          false,
+
+        authenticated:
+          false,
+
+        status:
+          healthResponse.status,
+      });
+    }
+
+    if (
+      !token
+    ) {
+      return NextResponse.json({
+        configured:
+          true,
+
+        reachable:
+          true,
+
+        databaseReady:
+          false,
+
+        authenticated:
+          false,
+
+        status:
+          healthResponse.status,
+      });
+    }
+
+    const authResponse =
       await fetchWithTimeout(
         `${backendUrl}/api/assessments/`,
         {
@@ -242,52 +315,34 @@ export async function GET(
             "GET",
 
           headers:
-            token
-              ? backendHeaders(
-                  token,
-                )
-              : {
-                  Accept:
-                    "application/json",
-                },
+            backendHeaders(
+              token,
+            ),
         },
       );
 
-    const status =
-      response.status;
-
-    const reachable =
-      response.ok ||
-      status === 401 ||
-      status === 403;
-
-    /*
-     * وقتی token داریم، authentication
-     * برای بررسی Device به DB دسترسی می‌زند.
-     *
-     * بنابراین 200/401/403 نشان می‌دهد Django
-     * حداقل توانسته request را پردازش کند.
-     *
-     * بدون token، 401 الزاماً DB را تست نمی‌کند.
-     */
-    const databaseReady =
-      Boolean(
-        token,
-      ) &&
-      reachable;
+    const backendProcessedRequest =
+      authResponse.ok ||
+      authResponse.status ===
+        401 ||
+      authResponse.status ===
+        403;
 
     return NextResponse.json({
       configured:
         true,
 
-      reachable,
+      reachable:
+        true,
 
-      databaseReady,
+      databaseReady:
+        backendProcessedRequest,
 
       authenticated:
-        response.ok,
+        authResponse.ok,
 
-      status,
+      status:
+        authResponse.status,
     });
   } catch (
     error
@@ -314,7 +369,7 @@ export async function GET(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sync case metadata                                                         */
+/* Assessment metadata                                                        */
 /* -------------------------------------------------------------------------- */
 
 export async function POST(
@@ -324,7 +379,9 @@ export async function POST(
   const backendUrl =
     getBackendBaseUrl();
 
-  if (!backendUrl) {
+  if (
+    !backendUrl
+  ) {
     return NextResponse.json(
       {
         success:
@@ -349,7 +406,9 @@ export async function POST(
       )
       ?.trim();
 
-  if (!token) {
+  if (
+    !token
+  ) {
     return NextResponse.json(
       {
         success:
@@ -377,7 +436,9 @@ export async function POST(
     const airwayCase =
       body.case;
 
-    if (!airwayCase) {
+    if (
+      !airwayCase
+    ) {
       return NextResponse.json(
         {
           success:
@@ -429,6 +490,12 @@ export async function POST(
       );
     }
 
+    const difficultIntubation =
+      normalizePreviousDifficultIntubation(
+        clinical
+          .priorDifficultIntubation,
+      );
+
     const assessmentPayload = {
       full_name:
         clinical.fullName.trim(),
@@ -449,8 +516,15 @@ export async function POST(
 
       neck_movement:
         mapNeckMovement(
-          clinical.headRotationStatus,
+          clinical
+            .headRotationStatus,
         ),
+
+      /*
+       * Backend field جدید.
+       */
+      previous_difficult_intubation:
+        difficultIntubation,
 
       created_at:
         airwayCase.createdAt,
@@ -544,3 +618,4 @@ export async function POST(
     );
   }
 }
+

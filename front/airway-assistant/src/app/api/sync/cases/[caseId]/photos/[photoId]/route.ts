@@ -6,34 +6,57 @@ import type {
   CaptureKind,
 } from "@/lib/domain/types";
 
-
 export const runtime =
   "nodejs";
 
 export const dynamic =
   "force-dynamic";
 
-
 const REQUEST_TIMEOUT_MS =
-  15_000;
+  30_000;
 
+const MAX_PROXY_IMAGE_BYTES =
+  4 * 1024 * 1024;
 
-function getBackendBaseUrl() {
-  return process.env
-    .BACKEND_API_URL
-    ?.trim()
+function getBackendBaseUrl():
+  | string
+  | undefined {
+  const raw =
+    process.env
+      .BACKEND_API_URL
+      ?.trim();
+
+  if (
+    !raw
+  ) {
+    return undefined;
+  }
+
+  return raw
+    .replace(
+      /\\/g,
+      "",
+    )
     .replace(
       /\/+$/,
       "",
     );
 }
 
-
 function mapPosition(
   kind:
     CaptureKind,
-) {
-  switch (kind) {
+):
+  | "front"
+  | "mallampati"
+  | "open_mouth"
+  | "upper_lip_bite"
+  | "side"
+  | "head_back_side"
+  | null {
+  switch (
+    kind
+  ) {
     case "front_neutral":
       return "front";
 
@@ -43,14 +66,19 @@ function mapPosition(
     case "mouth_open":
       return "open_mouth";
 
+    case "upper_lip_bite_front":
+      return "upper_lip_bite";
+
     case "lateral_neutral":
       return "side";
 
-    case "upper_lip_bite_front":
-      return "front";
+    case "head_back_side":
+      return "head_back_side";
+
+    default:
+      return null;
   }
 }
-
 
 async function readPayload(
   response:
@@ -59,7 +87,9 @@ async function readPayload(
   const text =
     await response.text();
 
-  if (!text) {
+  if (
+    !text
+  ) {
     return {};
   }
 
@@ -74,7 +104,6 @@ async function readPayload(
     };
   }
 }
-
 
 export async function PUT(
   request:
@@ -100,7 +129,9 @@ export async function PUT(
   const backendUrl =
     getBackendBaseUrl();
 
-  if (!backendUrl) {
+  if (
+    !backendUrl
+  ) {
     return NextResponse.json(
       {
         success:
@@ -125,7 +156,9 @@ export async function PUT(
       )
       ?.trim();
 
-  if (!token) {
+  if (
+    !token
+  ) {
     return NextResponse.json(
       {
         success:
@@ -181,15 +214,64 @@ export async function PUT(
       );
     }
 
+    const position =
+      mapPosition(
+        kindValue as
+          CaptureKind,
+      );
+
+    if (
+      !position
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          code:
+            "INVALID_CAPTURE_KIND",
+
+          message:
+            "نوع پوزیشن تصویر معتبر نیست.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    /*
+     * Backend خودش 5 MB قبول می‌کند.
+     * ولی proxy روی Vercel بهتر است
+     * فایل را زیر 4 MB نگه دارد.
+     */
+    if (
+      image.size >
+      MAX_PROXY_IMAGE_BYTES
+    ) {
+      return NextResponse.json(
+        {
+          success:
+            false,
+
+          code:
+            "PHOTO_TOO_LARGE",
+
+          message:
+            "حجم تصویر برای ارسال زیاد است.",
+        },
+        {
+          status: 413,
+        },
+      );
+    }
+
     const backendForm =
       new FormData();
 
     backendForm.append(
       "position",
-      mapPosition(
-        kindValue as
-          CaptureKind,
-      ),
+      position,
     );
 
     backendForm.append(
@@ -240,7 +322,9 @@ export async function PUT(
           response,
         );
 
-      if (!response.ok) {
+      if (
+        !response.ok
+      ) {
         return NextResponse.json(
           {
             success:
@@ -250,10 +334,16 @@ export async function PUT(
               response.status ===
                 401
                 ? "DEVICE_UNAUTHORIZED"
-                : "PHOTO_UPLOAD_REJECTED",
+                : response.status ===
+                    413
+                  ? "PHOTO_TOO_LARGE"
+                  : "PHOTO_UPLOAD_REJECTED",
 
             message:
-              "ارسال تصویر انجام نشد.",
+              response.status ===
+                413
+                ? "حجم تصویر برای ارسال زیاد است."
+                : "ارسال تصویر انجام نشد.",
 
             backend:
               payload,
