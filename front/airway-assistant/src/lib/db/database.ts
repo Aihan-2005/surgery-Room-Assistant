@@ -1,5 +1,6 @@
 import {
   openDB,
+  unwrap,
   type DBSchema,
   type IDBPDatabase,
 } from "idb";
@@ -16,7 +17,6 @@ import type {
   AuditEntry,
   CaptureKind,
   ClinicalAssessment,
-  IntubationOutcome,
   NeckMobility,
   PreparedImage,
   StoredPhoto,
@@ -31,7 +31,13 @@ import {
 const DATABASE_NAME =
   "airway-assistant-db";
 
-const DATABASE_VERSION = 2;
+/**
+ * v3:
+ * - Outcome store حذف شده.
+ * - awaiting_outcome / outcome_complete
+ *   به capture_completed migrate می‌شوند.
+ */
+const DATABASE_VERSION = 3;
 
 interface AirwayAssistantDatabase
   extends DBSchema {
@@ -66,23 +72,10 @@ interface AirwayAssistantDatabase
     };
   };
 
-  outcomes: {
-    key: string;
-
-    value:
-      IntubationOutcome;
-
-    indexes: {
-      "by-finalized-at":
-        string;
-    };
-  };
-
   audit: {
     key: string;
 
-    value:
-      AuditEntry;
+    value: AuditEntry;
 
     indexes: {
       "by-case-id":
@@ -111,6 +104,8 @@ interface LegacyCase {
   syncStatus?:
     SyncStatus;
 
+  studyStatus?: string;
+
   createdAt: string;
 
   updatedAt: string;
@@ -130,6 +125,10 @@ let databasePromise:
       IDBPDatabase<AirwayAssistantDatabase>
     >
   | null = null;
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function unknownClinical(
   legacy?:
@@ -214,8 +213,14 @@ function createCaseCode(
   id: string,
 ) {
   return `CASE-${id
-    .replace(/-/g, "")
-    .slice(0, 8)
+    .replace(
+      /-/g,
+      "",
+    )
+    .slice(
+      0,
+      8,
+    )
     .toUpperCase()}`;
 }
 
@@ -337,15 +342,49 @@ function requiredPhotosCaptured(
     StoredPhoto[],
 ) {
   return REQUIRED_CAPTURE_KINDS.every(
-    (kind) =>
+    (
+      kind,
+    ) =>
       photos.filter(
-        (photo) =>
+        (
+          photo,
+        ) =>
           photo.kind ===
           kind,
       ).length >=
       MIN_PHOTOS_PER_REQUIRED_POSITION,
   );
 }
+
+function createAuditEntry(
+  caseId:
+    string,
+
+  event:
+    AuditEntry["event"],
+
+  details?:
+    string,
+): AuditEntry {
+  return {
+    id:
+      crypto.randomUUID(),
+
+    caseId,
+
+    event,
+
+    details,
+
+    createdAt:
+      new Date()
+        .toISOString(),
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Database                                                                   */
+/* -------------------------------------------------------------------------- */
 
 function getDatabase() {
   if (
@@ -369,10 +408,16 @@ function getDatabase() {
             _newVersion,
             transaction,
           ) {
+            /* ------------------------------------------------------------ */
+            /* Cases                                                        */
+            /* ------------------------------------------------------------ */
+
             if (
-              !database.objectStoreNames.contains(
-                "cases",
-              )
+              !database
+                .objectStoreNames
+                .contains(
+                  "cases",
+                )
             ) {
               const store =
                 database.createObjectStore(
@@ -404,10 +449,16 @@ function getDatabase() {
               );
             }
 
+            /* ------------------------------------------------------------ */
+            /* Photos                                                       */
+            /* ------------------------------------------------------------ */
+
             if (
-              !database.objectStoreNames.contains(
-                "photos",
-              )
+              !database
+                .objectStoreNames
+                .contains(
+                  "photos",
+                )
             ) {
               const store =
                 database.createObjectStore(
@@ -424,30 +475,16 @@ function getDatabase() {
               );
             }
 
-            if (
-              !database.objectStoreNames.contains(
-                "outcomes",
-              )
-            ) {
-              const store =
-                database.createObjectStore(
-                  "outcomes",
-                  {
-                    keyPath:
-                      "caseId",
-                  },
-                );
-
-              store.createIndex(
-                "by-finalized-at",
-                "finalizedAt",
-              );
-            }
+            /* ------------------------------------------------------------ */
+            /* Audit                                                        */
+            /* ------------------------------------------------------------ */
 
             if (
-              !database.objectStoreNames.contains(
-                "audit",
-              )
+              !database
+                .objectStoreNames
+                .contains(
+                  "audit",
+                )
             ) {
               const store =
                 database.createObjectStore(
@@ -469,15 +506,42 @@ function getDatabase() {
               );
             }
 
+            /* ------------------------------------------------------------ */
+            /* Outcome removal                                              */
+            /* ------------------------------------------------------------ */
+
+           const nativeDatabase =
+  unwrap(
+    database,
+  );
+
+if (
+  nativeDatabase
+    .objectStoreNames
+    .contains(
+      "outcomes",
+    )
+) {
+  nativeDatabase.deleteObjectStore(
+    "outcomes",
+  );
+ }
+
+            /* ------------------------------------------------------------ */
+            /* Ensure indexes                                               */
+            /* ------------------------------------------------------------ */
+
             const caseStore =
               transaction.objectStore(
                 "cases",
               );
 
             if (
-              !caseStore.indexNames.contains(
-                "by-study-status",
-              )
+              !caseStore
+                .indexNames
+                .contains(
+                  "by-study-status",
+                )
             ) {
               caseStore.createIndex(
                 "by-study-status",
@@ -486,9 +550,11 @@ function getDatabase() {
             }
 
             if (
-              !caseStore.indexNames.contains(
-                "by-case-code",
-              )
+              !caseStore
+                .indexNames
+                .contains(
+                  "by-case-code",
+                )
             ) {
               caseStore.createIndex(
                 "by-case-code",
@@ -496,31 +562,54 @@ function getDatabase() {
               );
             }
 
+            /* ------------------------------------------------------------ */
+            /* Data migration                                               */
+            /* ------------------------------------------------------------ */
+
             if (
-              oldVersion > 0 &&
-              oldVersion < 2
+              oldVersion < 3
             ) {
               let cursor =
-                await caseStore.openCursor();
+                await caseStore
+                  .openCursor();
 
               while (cursor) {
-                const current =
+                const original =
                   cursor.value as unknown as
                     LegacyCase &
-                      Partial<
-                        AirwayCase
-                      >;
+                    Partial<AirwayCase> & {
+                      clinical?:
+                        ClinicalAssessment;
 
+                      outcomeCompletedAt?:
+                        string;
+                    };
+
+                let changed =
+                  false;
+
+                let migrated:
+                  Record<
+                    string,
+                    unknown
+                  > = {
+                    ...original,
+                  };
+
+                /*
+                 * Migration قدیمی v1 → v2.
+                 */
                 if (
-                  !current.clinical
+                  !original.clinical
                 ) {
-                  const migrated:
-                    AirwayCase = {
+                  migrated = {
+                    ...migrated,
+
                     id:
-                      current.id,
+                      original.id,
 
                     caseCode:
-                      current.caseCode,
+                      original.caseCode,
 
                     protocolVersion:
                       "legacy-v1",
@@ -535,43 +624,89 @@ function getDatabase() {
 
                     clinical:
                       unknownClinical(
-                        current,
+                        original,
                       ),
 
                     heightCm:
-                      current.heightCm,
+                      original.heightCm,
 
                     weightKg:
-                      current.weightKg,
+                      original.weightKg,
 
                     neckMobility:
-                      current.neckMobility ??
+                      original.neckMobility ??
                       "unknown",
 
                     notes:
-                      current.notes,
+                      original.notes,
 
                     studyStatus:
                       "preop_draft",
 
                     syncStatus:
-                      current.syncStatus ??
+                      original.syncStatus ??
                       "draft",
 
                     createdAt:
-                      current.createdAt,
+                      original.createdAt,
 
                     updatedAt:
-                      current.updatedAt,
+                      original.updatedAt,
                   };
 
+                  changed =
+                    true;
+                }
+
+                /*
+                 * Outcome دیگر در workflow وجود ندارد.
+                 *
+                 * Caseهای قدیمی که روی Outcome
+                 * مانده‌اند، مستقیماً capture_completed
+                 * در نظر گرفته می‌شوند.
+                 */
+                const oldStudyStatus =
+                  String(
+                    migrated.studyStatus ??
+                    "",
+                  );
+
+                if (
+                  oldStudyStatus ===
+                    "awaiting_outcome" ||
+                  oldStudyStatus ===
+                    "outcome_complete"
+                ) {
+                  migrated.studyStatus =
+                    "capture_completed";
+
+                  changed =
+                    true;
+                }
+
+                if (
+                  "outcomeCompletedAt" in
+                  migrated
+                ) {
+                  delete migrated
+                    .outcomeCompletedAt;
+
+                  changed =
+                    true;
+                }
+
+                if (
+                  changed
+                ) {
                   await cursor.update(
-                    migrated,
+                    migrated as unknown as
+                      AirwayCase,
                   );
                 }
 
                 cursor =
-                  await cursor.continue();
+                  await cursor
+                    .continue();
               }
             }
           },
@@ -582,26 +717,9 @@ function getDatabase() {
   return databasePromise;
 }
 
-function createAuditEntry(
-  caseId: string,
-  event:
-    AuditEntry["event"],
-  details?: string,
-): AuditEntry {
-  return {
-    id:
-      crypto.randomUUID(),
-
-    caseId,
-
-    event,
-
-    details,
-
-    createdAt:
-      new Date().toISOString(),
-  };
-}
+/* -------------------------------------------------------------------------- */
+/* Case                                                                       */
+/* -------------------------------------------------------------------------- */
 
 export async function createCase(
   input:
@@ -625,7 +743,8 @@ export async function createCase(
     await getDatabase();
 
   const now =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
   const id =
     crypto.randomUUID();
@@ -754,7 +873,8 @@ export async function createCase(
 }
 
 export async function getCase(
-  caseId: string,
+  caseId:
+    string,
 ) {
   const database =
     await getDatabase();
@@ -775,35 +895,48 @@ export async function getAllCases() {
     );
 
   return cases.sort(
-    (a, b) =>
+    (
+      first,
+      second,
+    ) =>
       new Date(
-        b.createdAt,
+        second.createdAt,
       ).getTime() -
       new Date(
-        a.createdAt,
+        first.createdAt,
       ).getTime(),
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Photos                                                                     */
+/* -------------------------------------------------------------------------- */
+
 export async function getPhotosByCase(
-  caseId: string,
+  caseId:
+    string,
 ) {
   const database =
     await getDatabase();
 
-  return database.getAllFromIndex(
-    "photos",
-    "by-case-id",
-    caseId,
-  );
+  return database
+    .getAllFromIndex(
+      "photos",
+      "by-case-id",
+      caseId,
+    );
 }
 
 export async function savePhoto(
-  caseId: string,
+  caseId:
+    string,
+
   kind:
     CaptureKind,
+
   prepared:
     PreparedImage,
+
   replacePhotoId?:
     string,
 ): Promise<StoredPhoto> {
@@ -880,7 +1013,8 @@ export async function savePhoto(
   }
 
   const now =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
   const photo:
     StoredPhoto = {
@@ -967,7 +1101,8 @@ export async function savePhoto(
 }
 
 export async function deletePhoto(
-  photoId: string,
+  photoId:
+    string,
 ) {
   const database =
     await getDatabase();
@@ -1053,7 +1188,8 @@ export async function deletePhoto(
     "draft";
 
   airwayCase.updatedAt =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
   await caseStore.put(
     airwayCase,
@@ -1073,8 +1209,23 @@ export async function deletePhoto(
 
   await transaction.done;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Finalize capture                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * بعد از تکمیل تصاویر:
+ *
+ * - عکس‌ها قفل می‌شوند.
+ * - workflow تصویربرداری کامل می‌شود.
+ * - Case مستقیماً وارد Queue ارسال می‌شود.
+ *
+ * دیگر هیچ Outcome مرحله‌ای وجود ندارد.
+ */
 export async function finalizePreop(
-  caseId: string,
+  caseId:
+    string,
 ) {
   const database =
     await getDatabase();
@@ -1105,6 +1256,9 @@ export async function finalizePreop(
     );
   }
 
+  /*
+   * اگر قبلاً final شده، دوباره تغییرش نده.
+   */
   if (
     airwayCase.preopLockedAt
   ) {
@@ -1123,7 +1277,6 @@ export async function finalizePreop(
         caseId,
       );
 
-
   const incompleteKinds =
     REQUIRED_CAPTURE_KINDS.filter(
       (
@@ -1139,7 +1292,6 @@ export async function finalizePreop(
         MIN_PHOTOS_PER_REQUIRED_POSITION,
     );
 
-
   if (
     incompleteKinds.length >
     0
@@ -1151,25 +1303,15 @@ export async function finalizePreop(
     );
   }
 
-
   const now =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
-
-  /*
-   * Outcome page به این status نیاز دارد.
-   */
   airwayCase.studyStatus =
-    "awaiting_outcome";
+    "capture_completed";
 
-
-  /*
-   * از همین لحظه Backend sync
-   * می‌تواند در پس‌زمینه انجام شود.
-   */
   airwayCase.syncStatus =
     "queued";
-
 
   airwayCase.preopLockedAt =
     now;
@@ -1180,11 +1322,9 @@ export async function finalizePreop(
   airwayCase.updatedAt =
     now;
 
-
   await caseStore.put(
     airwayCase,
   );
-
 
   await transaction
     .objectStore(
@@ -1194,147 +1334,23 @@ export async function finalizePreop(
       createAuditEntry(
         caseId,
         "preop_locked",
+        "capture_completed",
       ),
     );
 
-
   await transaction.done;
-
 
   return airwayCase;
 }
 
-export type FinalizeOutcomeInput =
-  Omit<
-    IntubationOutcome,
-    | "caseId"
-    | "finalizedAt"
-  >;
-
-export async function finalizeOutcome(
-  caseId: string,
-  input:
-    FinalizeOutcomeInput,
-) {
-  if (
-    !Number.isInteger(
-      input.attemptCount,
-    ) ||
-    input.attemptCount < 1
-  ) {
-    throw new Error(
-      "INVALID_ATTEMPT_COUNT",
-    );
-  }
-
-  if (
-    input.lowestSpO2Percent !==
-      undefined &&
-    (
-      input.lowestSpO2Percent <
-        0 ||
-      input.lowestSpO2Percent >
-        100
-    )
-  ) {
-    throw new Error(
-      "INVALID_SPO2",
-    );
-  }
-
-  const database =
-    await getDatabase();
-
-  const transaction =
-    database.transaction(
-      [
-        "cases",
-        "outcomes",
-        "audit",
-      ],
-      "readwrite",
-    );
-
-  const caseStore =
-    transaction.objectStore(
-      "cases",
-    );
-
-  const airwayCase =
-    await caseStore.get(
-      caseId,
-    );
-
-  if (!airwayCase) {
-    throw new Error(
-      "CASE_NOT_FOUND",
-    );
-  }
-
-  const now =
-    new Date().toISOString();
-
-  const outcome:
-    IntubationOutcome = {
-    ...input,
-
-    caseId,
-
-    finalizedAt:
-      now,
-  };
-
-  await transaction
-    .objectStore(
-      "outcomes",
-    )
-    .put(
-      outcome,
-    );
-
-  airwayCase.studyStatus =
-    "outcome_complete";
-
-  airwayCase.outcomeCompletedAt =
-    now;
-
-  airwayCase.updatedAt =
-    now;
-
-  await caseStore.put(
-    airwayCase,
-  );
-
-  await transaction
-    .objectStore(
-      "audit",
-    )
-    .put(
-      createAuditEntry(
-        caseId,
-        "outcome_finalized",
-      ),
-    );
-
-  await transaction.done;
-
-  return outcome;
-}
-
-export async function getOutcome(
-  caseId: string,
-) {
-  const database =
-    await getDatabase();
-
-  return database.get(
-    "outcomes",
-    caseId,
-  );
-}
+/* -------------------------------------------------------------------------- */
+/* Sync status                                                                */
+/* -------------------------------------------------------------------------- */
 
 export async function updateCaseStatus(
-  caseId: string,
+  caseId:
+    string,
+
   status:
     SyncStatus,
 ) {
@@ -1370,7 +1386,8 @@ export async function updateCaseStatus(
     status;
 
   airwayCase.updatedAt =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
   await store.put(
     airwayCase,
@@ -1397,22 +1414,30 @@ export async function getQueuedCases() {
   const database =
     await getDatabase();
 
-  return database.getAllFromIndex(
-    "cases",
-    "by-sync-status",
-    "queued",
-  );
+  return database
+    .getAllFromIndex(
+      "cases",
+      "by-sync-status",
+      "queued",
+    );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Audit                                                                      */
+/* -------------------------------------------------------------------------- */
+
 export async function getAuditByCase(
-  caseId: string,
+  caseId:
+    string,
 ) {
   const database =
     await getDatabase();
 
-  return database.getAllFromIndex(
-    "audit",
-    "by-case-id",
-    caseId,
-  );
+  return database
+    .getAllFromIndex(
+      "audit",
+      "by-case-id",
+      caseId,
+    );
 }
+

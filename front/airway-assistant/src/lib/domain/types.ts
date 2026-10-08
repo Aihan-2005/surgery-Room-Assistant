@@ -13,13 +13,19 @@ export type SyncStatus =
   | "synced"
   | "failed";
 
+/**
+ * Workflow جدید فقط دو مرحله اصلی دارد:
+ *
+ * 1. اطلاعات بیمار
+ * 2. تصویربرداری
+ *
+ * Outcome دیگر بخشی از workflow نیست.
+ */
 export type StudyStatus =
   | "preop_draft"
   | "preop_ready"
   | "capture_in_progress"
   | "capture_completed"
-  | "awaiting_outcome"
-  | "outcome_complete"
   | "completed"
   | "excluded";
 
@@ -50,28 +56,16 @@ export type HeadRotationStatus =
 /* Operator / Device                                                          */
 /* -------------------------------------------------------------------------- */
 
-/**
- * پروفایل پزشک/دستگاه ثبت‌شده در Backend.
- *
- * id:
- * همان device_id است که برای Django ارسال می‌شود.
- *
- * deviceToken:
- * Token صادرشده توسط Backend است و برای
- * Authorization: Device <token>
- * استفاده می‌شود.
- */
 export interface OperatorProfile {
   /**
-   * Local unique operator/device ID.
+   * شناسه یکتای local device/operator.
    */
   id: string;
 
   fullName: string;
 
   /**
-   * Undefined تا زمانی که Device
-   * در Backend register نشده باشد.
+   * بعد از registration موفق Backend ایجاد می‌شود.
    */
   deviceToken?: string;
 
@@ -83,8 +77,9 @@ export interface OperatorProfile {
 
   updatedAt: string;
 }
+
 /* -------------------------------------------------------------------------- */
-/* Airway classifications                                                     */
+/* Legacy airway classifications                                              */
 /* -------------------------------------------------------------------------- */
 
 export type MallampatiClass =
@@ -100,22 +95,6 @@ export type UpperLipBiteClass =
   | 3
   | "unknown";
 
-export type CormackLehaneGrade =
-  | 1
-  | 2
-  | 3
-  | 4
-  | "unknown";
-
-export type InitialAirwayDevice =
-  | "direct_laryngoscope"
-  | "video_laryngoscope"
-  | "flexible_bronchoscope"
-  | "fiberoptic"
-  | "supraglottic_airway"
-  | "other"
-  | "unknown";
-
 /* -------------------------------------------------------------------------- */
 /* Capture                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -127,7 +106,7 @@ export type CaptureKind =
   | "lateral_neutral"
 
   /**
-   * Legacy compatibility.
+   * فقط برای backward compatibility.
    */
   | "upper_lip_bite_front";
 
@@ -140,7 +119,7 @@ export type CaptureSource =
   | "unknown";
 
 /* -------------------------------------------------------------------------- */
-/* Image Quality                                                              */
+/* Image quality                                                              */
 /* -------------------------------------------------------------------------- */
 
 export type ImageQualityFlag =
@@ -216,14 +195,11 @@ export interface ImageQualityMetrics {
 
   checkedAt?: string;
 
-  /**
-   * QC ممکن است بعداً metricهای بیشتری داشته باشد.
-   */
   [key: string]: unknown;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Prepared Image                                                             */
+/* Prepared image                                                             */
 /* -------------------------------------------------------------------------- */
 
 export interface PreparedImage {
@@ -235,13 +211,13 @@ export interface PreparedImage {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Clinical Assessment                                                        */
+/* Clinical assessment                                                        */
 /* -------------------------------------------------------------------------- */
 
 export interface ClinicalAssessment {
   /**
-   * برای Case جدید در createCase اجباری می‌شود.
-   * Optional بودن اینجا فقط برای سازگاری داده‌های قدیمی است.
+   * برای Caseهای جدید در createCase الزامی است.
+   * Optional بودن type فقط برای داده‌های قدیمی است.
    */
   fullName?: string;
 
@@ -265,13 +241,6 @@ export interface ClinicalAssessment {
    */
   neckMobility: NeckMobility;
 
-  /**
-   * complete:
-   * چرخش کامل
-   *
-   * incomplete:
-   * چرخش ناکامل
-   */
   headRotationStatus?:
     HeadRotationStatus;
 
@@ -281,8 +250,8 @@ export interface ClinicalAssessment {
   neckRotationDegrees?: number;
 
   /**
-   * فعلاً از فرم حذف شده‌اند،
-   * ولی برای backward compatibility نگه داشته می‌شوند.
+   * این دو از فرم اطلاعات بیمار حذف شده‌اند
+   * ولی برای backward compatibility باقی مانده‌اند.
    */
   mallampatiClass:
     MallampatiClass;
@@ -323,42 +292,6 @@ export interface ConsentRecord {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Outcome                                                                    */
-/* -------------------------------------------------------------------------- */
-
-export interface IntubationOutcome {
-  caseId: string;
-
-  finalizedAt: string;
-
-  attemptCount: number;
-
-  cormackLehaneGrade:
-    CormackLehaneGrade;
-
-  initialDevice:
-    InitialAirwayDevice;
-
-  strategyEscalation: boolean;
-
-  bougieUsed: boolean;
-
-  styletUsed: boolean;
-
-  videoLaryngoscopeUsed: boolean;
-
-  supraglotticRescueUsed: boolean;
-
-  operatorExperienceYears?: number;
-
-  lowestSpO2Percent?: number;
-
-  complications?: string;
-
-  notes?: string;
-}
-
-/* -------------------------------------------------------------------------- */
 /* Case                                                                       */
 /* -------------------------------------------------------------------------- */
 
@@ -366,28 +299,19 @@ export interface AirwayCase {
   /**
    * UUID اصلی Case.
    *
-   * همین UUID به‌عنوان Assessment ID
-   * به Backend ارسال می‌شود.
+   * همین UUID برای Assessment Backend استفاده می‌شود.
    */
   id: string;
 
   /**
-   * شناسه کوتاه فقط برای نمایش.
+   * شناسه کوتاه برای نمایش.
    */
   caseCode: string;
 
   protocolVersion: string;
 
-  /**
-   * همان Device ID پزشک.
-   *
-   * Optional برای Caseهای قدیمی.
-   */
   operatorId?: string;
 
-  /**
-   * Snapshot نام پزشک هنگام ایجاد Case.
-   */
   operatorNameSnapshot?: string;
 
   consent:
@@ -414,11 +338,13 @@ export interface AirwayCase {
   neckMobility?:
     NeckMobility;
 
+  /**
+   * بعد از تکمیل تمام عکس‌های الزامی،
+   * Case قفل می‌شود.
+   */
   preopLockedAt?: string;
 
   captureCompletedAt?: string;
-
-  outcomeCompletedAt?: string;
 
   createdAt: string;
 
@@ -433,8 +359,8 @@ export interface StoredPhoto {
   /**
    * UUID عکس.
    *
-   * همین مقدار به Backend به‌عنوان
-   * AssessmentPhoto ID ارسال می‌شود.
+   * همین UUID به Backend ارسال می‌شود تا
+   * retry باعث duplicate نشود.
    */
   id: string;
 
@@ -471,7 +397,6 @@ export type AuditEvent =
     | "photo_saved"
     | "photo_deleted"
     | "preop_locked"
-    | "outcome_finalized"
     | "sync_status_changed"
   >;
 
