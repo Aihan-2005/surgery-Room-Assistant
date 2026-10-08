@@ -41,7 +41,7 @@ import {
   getCase,
   getPhotosByCase,
   savePhoto,
-  updateCaseStatus,
+  finalizePreop,
 } from "@/lib/db/database";
 
 import type {
@@ -526,51 +526,52 @@ export default function CapturePage() {
     }
   }
 
-  async function handleReady() {
-    if (
-      !isComplete
-    ) {
-      setError(
-        `برای هر پوزیشن حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
-      );
+async function handleReady() {
+  if (
+    !isComplete
+  ) {
+    setError(
+      `برای هر پوزیشن حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
+    );
 
-      return;
-    }
-
-    try {
-      setSubmitting(
-        true,
-      );
-
-      setError(
-        null,
-      );
-
-      await updateCaseStatus(
-        caseId,
-        "queued",
-      );
-
-      router.push(
-        "/queue",
-      );
-    } catch (
-      readyError
-    ) {
-      console.error(
-        "Failed to queue case:",
-        readyError,
-      );
-
-      setError(
-        "قرار دادن Case در صف ارسال انجام نشد.",
-      );
-    } finally {
-      setSubmitting(
-        false,
-      );
-    }
+    return;
   }
+
+  try {
+    setSubmitting(
+      true,
+    );
+
+    setError(
+      null,
+    );
+
+
+    
+    await finalizePreop(
+      caseId,
+    );
+
+    router.push(
+      `/cases/${caseId}/capture/outcome`,
+    );
+  } catch (
+    readyError
+  ) {
+    console.error(
+      "Failed to finalize pre-op:",
+      readyError,
+    );
+
+    setError(
+      "نهایی‌سازی تصاویر انجام نشد.",
+    );
+  } finally {
+    setSubmitting(
+      false,
+    );
+  }
+}
 
   if (
     loading

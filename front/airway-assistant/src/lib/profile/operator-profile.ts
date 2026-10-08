@@ -2,9 +2,6 @@ import type {
   OperatorProfile,
 } from "@/lib/domain/types";
 
-/* -------------------------------------------------------------------------- */
-/* Storage                                                                    */
-/* -------------------------------------------------------------------------- */
 
 const STORAGE_KEY =
   "airway-assistant:operator-profile:v2";
@@ -12,21 +9,17 @@ const STORAGE_KEY =
 const LEGACY_STORAGE_KEY =
   "airway-assistant:operator-profile:v1";
 
-/* -------------------------------------------------------------------------- */
-/* Internal types                                                             */
-/* -------------------------------------------------------------------------- */
 
 interface LegacyOperatorProfile {
   id?: string;
 
   fullName?: string;
 
-  version?: number;
-
   createdAt?: string;
 
   updatedAt?: string;
 }
+
 
 interface BackendRegistrationResponse {
   token?: string;
@@ -36,35 +29,28 @@ interface BackendRegistrationResponse {
   code?: string;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
 
 function normalizeFullName(
   value: string,
 ) {
   return value
-    .replace(
-      /\s+/g,
-      " ",
-    )
+    .replace(/\s+/g, " ")
     .trim();
 }
+
 
 function isOperatorProfile(
   value: unknown,
 ): value is OperatorProfile {
   if (
     !value ||
-    typeof value !==
-      "object"
+    typeof value !== "object"
   ) {
     return false;
   }
 
   const candidate =
-    value as
-      Partial<OperatorProfile>;
+    value as Partial<OperatorProfile>;
 
   return (
     typeof candidate.id ===
@@ -76,117 +62,53 @@ function isOperatorProfile(
     candidate.fullName.trim()
       .length > 0 &&
 
-    typeof candidate.deviceToken ===
-      "string" &&
-    candidate.deviceToken.length >
-      0 &&
-
-    typeof candidate.registeredAt ===
-      "string" &&
-    candidate.registeredAt.length >
-      0 &&
-
     candidate.version === 2 &&
 
     typeof candidate.createdAt ===
       "string" &&
 
     typeof candidate.updatedAt ===
-      "string"
+      "string" &&
+
+    (
+      candidate.deviceToken ===
+        undefined ||
+      typeof candidate.deviceToken ===
+        "string"
+    ) &&
+
+    (
+      candidate.registeredAt ===
+        undefined ||
+      typeof candidate.registeredAt ===
+        "string"
+    )
   );
 }
+
 
 function saveOperatorProfile(
   profile:
     OperatorProfile,
 ) {
   if (
-    typeof window ===
-    "undefined"
+    typeof window === "undefined"
   ) {
     return;
   }
 
   window.localStorage.setItem(
     STORAGE_KEY,
-    JSON.stringify(
-      profile,
-    ),
+    JSON.stringify(profile),
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Read current V2 profile                                                    */
-/* -------------------------------------------------------------------------- */
 
-export function getOperatorProfile():
+function migrateLegacyProfile():
   | OperatorProfile
   | null {
   if (
-    typeof window ===
-    "undefined"
-  ) {
-    return null;
-  }
-
-  const raw =
-    window.localStorage.getItem(
-      STORAGE_KEY,
-    );
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed:
-      unknown =
-      JSON.parse(
-        raw,
-      );
-
-    if (
-      !isOperatorProfile(
-        parsed,
-      )
-    ) {
-      /**
-       * داده خراب یا ناقص را نگه نمی‌داریم.
-       */
-      window.localStorage.removeItem(
-        STORAGE_KEY,
-      );
-
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    window.localStorage.removeItem(
-      STORAGE_KEY,
-    );
-
-    return null;
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Legacy profile                                                             */
-/* -------------------------------------------------------------------------- */
-
-/**
- * از نسخه قبلی فقط نام پزشک را نگه می‌داریم.
- *
- * Token قدیمی وجود نداشته؛ بنابراین V1 نمی‌تواند
- * مستقیماً به V2 تبدیل شود و باید یک بار Backend
- * registration انجام شود.
- */
-export function getLegacyOperatorName():
-  | string
-  | null {
-  if (
-    typeof window ===
-    "undefined"
+    typeof window === "undefined"
   ) {
     return null;
   }
@@ -201,36 +123,168 @@ export function getLegacyOperatorName():
   }
 
   try {
-    const parsed =
+    const legacy =
       JSON.parse(
         raw,
-      ) as
-        LegacyOperatorProfile;
+      ) as LegacyOperatorProfile;
 
-    if (
-      typeof parsed.fullName !==
-      "string"
-    ) {
+    const fullName =
+      typeof legacy.fullName ===
+        "string"
+        ? normalizeFullName(
+            legacy.fullName,
+          )
+        : "";
+
+    if (!fullName) {
       return null;
     }
 
-    const normalized =
-      normalizeFullName(
-        parsed.fullName,
-      );
+    const now =
+      new Date().toISOString();
 
-    return (
-      normalized ||
-      null
+    const profile:
+      OperatorProfile = {
+      id:
+        typeof legacy.id ===
+          "string" &&
+        legacy.id.length > 0
+          ? legacy.id
+          : crypto.randomUUID(),
+
+      fullName,
+
+      version: 2,
+
+      createdAt:
+        legacy.createdAt ??
+        now,
+
+      updatedAt:
+        now,
+    };
+
+    saveOperatorProfile(
+      profile,
     );
+
+    window.localStorage.removeItem(
+      LEGACY_STORAGE_KEY,
+    );
+
+    return profile;
   } catch {
     return null;
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Backend registration request                                               */
-/* -------------------------------------------------------------------------- */
+
+export function getOperatorProfile():
+  | OperatorProfile
+  | null {
+  if (
+    typeof window === "undefined"
+  ) {
+    return null;
+  }
+
+  const raw =
+    window.localStorage.getItem(
+      STORAGE_KEY,
+    );
+
+  if (!raw) {
+    return migrateLegacyProfile();
+  }
+
+  try {
+    const parsed:
+      unknown =
+      JSON.parse(raw);
+
+    if (
+      !isOperatorProfile(
+        parsed,
+      )
+    ) {
+      window.localStorage.removeItem(
+        STORAGE_KEY,
+      );
+
+      return migrateLegacyProfile();
+    }
+
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(
+      STORAGE_KEY,
+    );
+
+    return migrateLegacyProfile();
+  }
+}
+
+
+export function createLocalOperatorProfile(
+  fullName: string,
+): OperatorProfile {
+  if (
+    typeof window === "undefined"
+  ) {
+    throw new Error(
+      "OPERATOR_PROFILE_CLIENT_ONLY",
+    );
+  }
+
+  const existing =
+    getOperatorProfile();
+
+  if (existing) {
+    return existing;
+  }
+
+  const normalized =
+    normalizeFullName(
+      fullName,
+    );
+
+  if (!normalized) {
+    throw new Error(
+      "OPERATOR_NAME_REQUIRED",
+    );
+  }
+
+  const now =
+    new Date().toISOString();
+
+  const profile:
+    OperatorProfile = {
+    id:
+      crypto.randomUUID(),
+
+    fullName:
+      normalized,
+
+    version: 2,
+
+    createdAt:
+      now,
+
+    updatedAt:
+      now,
+  };
+
+  saveOperatorProfile(
+    profile,
+  );
+
+  window.localStorage.removeItem(
+    LEGACY_STORAGE_KEY,
+  );
+
+  return profile;
+}
+
 
 async function requestRegistration(
   deviceId: string,
@@ -283,65 +337,48 @@ async function requestRegistration(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Register operator                                                          */
-/* -------------------------------------------------------------------------- */
 
-/**
- * اولین بار:
- *
- * 1. UUID برای device می‌سازیم.
- * 2. نام پزشک + UUID را به Next API می‌فرستیم.
- * 3. Next API آن را به Django Backend می‌فرستد.
- * 4. Backend یک token صادر می‌کند.
- * 5. token و device ID روی دستگاه ذخیره می‌شوند.
- *
- * دفعات بعد:
- * profile موجود برگردانده می‌شود و registration
- * دوباره انجام نمی‌شود.
- */
-export async function registerOperator(
-  fullName: string,
+export async function ensureOperatorRegistered(
+  options?: {
+    force?: boolean;
+  },
 ): Promise<OperatorProfile> {
-  if (
-    typeof window ===
-    "undefined"
-  ) {
-    throw new Error(
-      "OPERATOR_PROFILE_CLIENT_ONLY",
-    );
-  }
-
-  const existing =
+  const profile =
     getOperatorProfile();
 
-  if (existing) {
-    return existing;
+  if (!profile) {
+    throw new Error(
+      "OPERATOR_PROFILE_REQUIRED",
+    );
   }
 
-  const normalizedFullName =
-    normalizeFullName(
-      fullName,
-    );
+  const force =
+    options?.force === true;
 
   if (
-    !normalizedFullName
+    profile.deviceToken &&
+    !force
   ) {
-    throw new Error(
-      "OPERATOR_NAME_REQUIRED",
-    );
+    return profile;
   }
- 
+
   let deviceId =
-    crypto.randomUUID();
+    force
+      ? crypto.randomUUID()
+      : profile.id;
 
   let registration =
     await requestRegistration(
       deviceId,
-      normalizedFullName,
+      profile.fullName,
     );
 
-    
+  /*
+   * Backend cannot re-issue an old token.
+   * If the ID is already registered but this
+   * browser no longer has its token, register
+   * a fresh device ID.
+   */
   if (
     registration.response.status ===
     409
@@ -352,7 +389,7 @@ export async function registerOperator(
     registration =
       await requestRegistration(
         deviceId,
-        normalizedFullName,
+        profile.fullName,
       );
   }
 
@@ -388,7 +425,7 @@ export async function registerOperator(
 
     throw new Error(
       registration.data.detail ||
-        "DEVICE_REGISTRATION_FAILED",
+      "DEVICE_REGISTRATION_FAILED",
     );
   }
 
@@ -404,13 +441,12 @@ export async function registerOperator(
   const now =
     new Date().toISOString();
 
-  const profile:
+  const registered:
     OperatorProfile = {
+    ...profile,
+
     id:
       deviceId,
-
-    fullName:
-      normalizedFullName,
 
     deviceToken:
       token,
@@ -418,35 +454,21 @@ export async function registerOperator(
     registeredAt:
       now,
 
-    version:
-      2,
-
-    createdAt:
-      now,
-
     updatedAt:
       now,
   };
 
   saveOperatorProfile(
-    profile,
+    registered,
   );
 
-
-  
-  window.localStorage.removeItem(
-    LEGACY_STORAGE_KEY,
-  );
-
-  return profile;
+  return registered;
 }
-
 
 
 export function clearOperatorProfile() {
   if (
-    typeof window ===
-    "undefined"
+    typeof window === "undefined"
   ) {
     return;
   }

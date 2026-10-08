@@ -62,13 +62,20 @@ export type HeadRotationStatus =
  * استفاده می‌شود.
  */
 export interface OperatorProfile {
+  /**
+   * Local unique operator/device ID.
+   */
   id: string;
 
   fullName: string;
 
-  deviceToken: string;
+  /**
+   * Undefined تا زمانی که Device
+   * در Backend register نشده باشد.
+   */
+  deviceToken?: string;
 
-  registeredAt: string;
+  registeredAt?: string;
 
   version: 2;
 
@@ -76,7 +83,6 @@ export interface OperatorProfile {
 
   updatedAt: string;
 }
-
 /* -------------------------------------------------------------------------- */
 /* Airway classifications                                                     */
 /* -------------------------------------------------------------------------- */

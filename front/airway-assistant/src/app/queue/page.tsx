@@ -50,16 +50,12 @@ function isPendingCase(
     AirwayCase,
 ) {
   return (
-    airwayCase.studyStatus ===
-      "outcome_complete" &&
-    (
-      airwayCase.syncStatus ===
-        "queued" ||
-      airwayCase.syncStatus ===
-        "syncing" ||
-      airwayCase.syncStatus ===
-        "failed"
-    )
+    airwayCase.syncStatus ===
+      "queued" ||
+    airwayCase.syncStatus ===
+      "syncing" ||
+    airwayCase.syncStatus ===
+      "failed"
   );
 }
 
