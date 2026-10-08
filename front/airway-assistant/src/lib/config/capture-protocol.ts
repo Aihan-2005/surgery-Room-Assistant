@@ -29,6 +29,9 @@ export interface CaptureStep {
   guide:
     CaptureGuideVariant;
 
+  /**
+   * در پروتکل فعلی هیچ position اجباری نیست.
+   */
   required:
     boolean;
 
@@ -58,7 +61,7 @@ export const CAPTURE_PROTOCOL:
         "front",
 
       required:
-        true,
+        false,
 
       instructions: [
         "بیمار مستقیماً روبه‌روی دوربین قرار بگیرد.",
@@ -90,7 +93,7 @@ export const CAPTURE_PROTOCOL:
         "mallampati",
 
       required:
-        true,
+        false,
 
       instructions: [
         "بیمار روبه‌روی دوربین قرار بگیرد.",
@@ -123,7 +126,7 @@ export const CAPTURE_PROTOCOL:
         "mouth-open",
 
       required:
-        true,
+        false,
 
       instructions: [
         "بیمار مستقیماً روبه‌روی دوربین قرار بگیرد.",
@@ -156,7 +159,7 @@ export const CAPTURE_PROTOCOL:
         "upper-lip-bite",
 
       required:
-        true,
+        false,
 
       instructions: [
         "بیمار مستقیماً روبه‌روی دوربین باشد.",
@@ -189,7 +192,7 @@ export const CAPTURE_PROTOCOL:
         "lateral",
 
       required:
-        true,
+        false,
 
       instructions: [
         "صورت بیمار از نمای جانبی ثبت شود.",
@@ -221,7 +224,7 @@ export const CAPTURE_PROTOCOL:
         "head-back-side",
 
       required:
-        true,
+        false,
 
       instructions: [
         "بیمار در نمای جانبی قرار بگیرد.",

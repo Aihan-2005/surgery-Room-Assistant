@@ -8,7 +8,9 @@ import {
   Camera,
   CheckCircle2,
   ImagePlus,
+  LoaderCircle,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -44,9 +46,6 @@ interface PhotoCardProps {
   photos:
     PhotoSlot[];
 
-  requiredPhotoCount:
-    number;
-
   maxPhotoCount:
     number;
 
@@ -54,6 +53,11 @@ interface PhotoCardProps {
     image:
       PreparedImage,
     replacePhotoId?:
+      string,
+  ) => Promise<void>;
+
+  onPhotoDelete: (
+    photoId:
       string,
   ) => Promise<void>;
 
@@ -66,9 +70,9 @@ export function PhotoCard({
   positionIndex,
   totalPositions,
   photos,
-  requiredPhotoCount,
   maxPhotoCount,
   onPhotoSelected,
+  onPhotoDelete,
   disabled = false,
 }: PhotoCardProps) {
   const [
@@ -85,20 +89,29 @@ export function PhotoCard({
       string | undefined
     >(undefined);
 
-  const complete =
-    photos.length >=
-    requiredPhotoCount;
+  const [
+    deletingPhotoId,
+    setDeletingPhotoId,
+  ] =
+    useState<
+      string | null
+    >(null);
 
   const canAdd =
     photos.length <
     maxPhotoCount;
+
+  const hasPhotos =
+    photos.length >
+    0;
 
   function openCamera(
     photoId?:
       string,
   ) {
     if (
-      disabled
+      disabled ||
+      deletingPhotoId
     ) {
       return;
     }
@@ -119,6 +132,43 @@ export function PhotoCard({
     );
   }
 
+  async function handleDelete(
+    photoId:
+      string,
+  ) {
+    if (
+      disabled ||
+      deletingPhotoId
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "این عکس حذف شود؟ این عمل قبل از ارسال به سرور انجام می‌شود.",
+      );
+
+    if (
+      !confirmed
+    ) {
+      return;
+    }
+
+    try {
+      setDeletingPhotoId(
+        photoId,
+      );
+
+      await onPhotoDelete(
+        photoId,
+      );
+    } finally {
+      setDeletingPhotoId(
+        null,
+      );
+    }
+  }
+
   return (
     <>
       <section
@@ -131,7 +181,9 @@ export function PhotoCard({
           shadow-sm
         "
       >
-        <div className="p-4">
+        <div
+          className="p-4"
+        >
           <div
             className="
               flex
@@ -140,7 +192,12 @@ export function PhotoCard({
               gap-4
             "
           >
-            <div className="min-w-0 flex-1">
+            <div
+              className="
+                min-w-0
+                flex-1
+              "
+            >
               <div
                 className="
                   flex
@@ -182,19 +239,15 @@ export function PhotoCard({
                 <span
                   className="
                     rounded-full
-                    bg-red-50
+                    bg-sky-50
                     px-2
                     py-1
                     text-[10px]
                     font-bold
-                    text-red-600
+                    text-sky-700
                   "
                 >
-                  حداقل{" "}
-                  {
-                    requiredPhotoCount
-                  }{" "}
-                  عکس
+                  اختیاری
                 </span>
 
                 <span
@@ -211,7 +264,8 @@ export function PhotoCard({
                   حداکثر{" "}
                   {
                     maxPhotoCount
-                  }
+                  }{" "}
+                  عکس
                 </span>
               </div>
 
@@ -246,7 +300,7 @@ export function PhotoCard({
               </p>
             </div>
 
-            {complete && (
+            {hasPhotos && (
               <CheckCircle2
                 size={24}
                 className="
@@ -293,7 +347,9 @@ export function PhotoCard({
                     key={
                       instruction
                     }
-                    className="list-disc"
+                    className="
+                      list-disc
+                    "
                   >
                     {
                       instruction
@@ -317,105 +373,181 @@ export function PhotoCard({
             (
               photo,
               index,
-            ) => (
-              <div
-                key={
-                  photo.id
-                }
-                className="
-                  overflow-hidden
-                  rounded-2xl
-                  border
-                  border-slate-200
-                  bg-slate-100
-                "
-              >
+            ) => {
+              const deleting =
+                deletingPhotoId ===
+                photo.id;
+
+              return (
                 <div
+                  key={
+                    photo.id
+                  }
                   className="
-                    relative
-                    aspect-[4/3]
+                    overflow-hidden
+                    rounded-2xl
+                    border
+                    border-slate-200
+                    bg-slate-100
                   "
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={
-                      photo.url
-                    }
-                    alt={`${step.title} - عکس ${
-                      index +
-                      1
-                    }`}
+                  <div
                     className="
-                      h-full
-                      w-full
-                      object-cover
-                    "
-                  />
-
-                  <span
-                    className="
-                      absolute
-                      right-2
-                      top-2
-                      flex
-                      size-7
-                      items-center
-                      justify-center
-                      rounded-full
-                      bg-black/60
-                      text-[11px]
-                      font-bold
-                      text-white
+                      relative
+                      aspect-[4/3]
                     "
                   >
-                    {
-                      index + 1
-                    }
-                  </span>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={
+                        photo.url
+                      }
+                      alt={`${step.title} - عکس ${
+                        index +
+                        1
+                      }`}
+                      className="
+                        h-full
+                        w-full
+                        object-cover
+                      "
+                    />
+
+                    <span
+                      className="
+                        absolute
+                        right-2
+                        top-2
+                        flex
+                        size-7
+                        items-center
+                        justify-center
+                        rounded-full
+                        bg-black/60
+                        text-[11px]
+                        font-bold
+                        text-white
+                      "
+                    >
+                      {
+                        index +
+                        1
+                      }
+                    </span>
+
+                    {deleting && (
+                      <div
+                        className="
+                          absolute
+                          inset-0
+                          flex
+                          items-center
+                          justify-center
+                          bg-black/50
+                        "
+                      >
+                        <LoaderCircle
+                          size={24}
+                          className="
+                            animate-spin
+                            text-white
+                          "
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    className="
+                      grid
+                      grid-cols-2
+                      border-t
+                      border-slate-200
+                    "
+                  >
+                    <button
+                      type="button"
+                      disabled={
+                        disabled ||
+                        Boolean(
+                          deletingPhotoId,
+                        )
+                      }
+                      onClick={() =>
+                        openCamera(
+                          photo.id,
+                        )
+                      }
+                      className="
+                        flex
+                        min-h-11
+                        items-center
+                        justify-center
+                        gap-1.5
+                        border-l
+                        border-slate-200
+                        bg-white
+                        px-2
+                        text-xs
+                        font-bold
+                        text-sky-700
+                        disabled:opacity-50
+                      "
+                    >
+                      <ImagePlus
+                        size={15}
+                      />
+
+                      گرفتن مجدد
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={
+                        disabled ||
+                        Boolean(
+                          deletingPhotoId,
+                        )
+                      }
+                      onClick={() =>
+                        void handleDelete(
+                          photo.id,
+                        )
+                      }
+                      className="
+                        flex
+                        min-h-11
+                        items-center
+                        justify-center
+                        gap-1.5
+                        bg-white
+                        px-2
+                        text-xs
+                        font-bold
+                        text-red-600
+                        disabled:opacity-50
+                      "
+                    >
+                      <Trash2
+                        size={15}
+                      />
+
+                      حذف
+                    </button>
+                  </div>
                 </div>
-
-                <button
-                  type="button"
-                  disabled={
-                    disabled
-                  }
-                  onClick={() =>
-                    openCamera(
-                      photo.id,
-                    )
-                  }
-                  className="
-                    flex
-                    min-h-11
-                    w-full
-                    items-center
-                    justify-center
-                    gap-1.5
-                    border-t
-                    border-slate-200
-                    bg-white
-                    px-2
-                    text-xs
-                    font-bold
-                    text-sky-700
-                    disabled:opacity-50
-                  "
-                >
-                  <ImagePlus
-                    size={16}
-                  />
-
-                  گرفتن مجدد
-                </button>
-              </div>
-            ),
+              );
+            },
           )}
 
           {canAdd && (
             <button
               type="button"
               disabled={
-                disabled
+                disabled ||
+                Boolean(
+                  deletingPhotoId,
+                )
               }
               onClick={() =>
                 openCamera()
@@ -459,7 +591,7 @@ export function PhotoCard({
               >
                 {photos.length ===
                 0
-                  ? "ثبت اولین عکس"
+                  ? "ثبت عکس"
                   : "افزودن عکس"}
               </span>
 
@@ -490,16 +622,10 @@ export function PhotoCard({
             text-slate-500
           "
         >
-          {
-            photos.length
-          }{" "}
-          عکس ثبت شده
-
-          {" — "}
-
-          {complete
-            ? "حداقل لازم تکمیل شده"
-            : `${requiredPhotoCount - photos.length} عکس دیگر لازم است`}
+          {photos.length ===
+          0
+            ? "برای این پوزیشن عکسی ثبت نشده است."
+            : `${photos.length} عکس ثبت شده است.`}
         </div>
       </section>
 

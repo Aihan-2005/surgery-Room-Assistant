@@ -7,8 +7,8 @@ import {
 
 import {
   CONSENT_VERSION,
-  MIN_PHOTOS_PER_REQUIRED_POSITION,
-  REQUIRED_CAPTURE_KINDS,
+  MAX_PHOTOS_PER_POSITION,
+  MIN_TOTAL_PHOTOS,
   STUDY_PROTOCOL_VERSION,
 } from "@/lib/config/study-protocol";
 
@@ -31,20 +31,17 @@ import {
 const DATABASE_NAME =
   "airway-assistant-db";
 
-/**
- * v3:
- * - Outcome store حذف شده.
- * - awaiting_outcome / outcome_complete
- *   به capture_completed migrate می‌شوند.
- */
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION =
+  3;
 
 interface AirwayAssistantDatabase
   extends DBSchema {
   cases: {
-    key: string;
+    key:
+      string;
 
-    value: AirwayCase;
+    value:
+      AirwayCase;
 
     indexes: {
       "by-created-at":
@@ -62,9 +59,11 @@ interface AirwayAssistantDatabase
   };
 
   photos: {
-    key: string;
+    key:
+      string;
 
-    value: StoredPhoto;
+    value:
+      StoredPhoto;
 
     indexes: {
       "by-case-id":
@@ -73,9 +72,11 @@ interface AirwayAssistantDatabase
   };
 
   audit: {
-    key: string;
+    key:
+      string;
 
-    value: AuditEntry;
+    value:
+      AuditEntry;
 
     indexes: {
       "by-case-id":
@@ -88,36 +89,46 @@ interface AirwayAssistantDatabase
 }
 
 interface LegacyCase {
-  id: string;
+  id:
+    string;
 
-  caseCode: string;
+  caseCode:
+    string;
 
-  heightCm?: number;
+  heightCm?:
+    number;
 
-  weightKg?: number;
+  weightKg?:
+    number;
 
   neckMobility?:
     NeckMobility;
 
-  notes?: string;
+  notes?:
+    string;
 
   syncStatus?:
     SyncStatus;
 
-  studyStatus?: string;
+  studyStatus?:
+    string;
 
-  createdAt: string;
+  createdAt:
+    string;
 
-  updatedAt: string;
+  updatedAt:
+    string;
 }
 
 export interface CreateCaseInput {
-  fullName: string;
+  fullName:
+    string;
 
   clinical:
     ClinicalAssessment;
 
-  notes?: string;
+  notes?:
+    string;
 }
 
 let databasePromise:
@@ -199,7 +210,8 @@ function unknownClinical(
 }
 
 function normalizeFullName(
-  value: string,
+  value:
+    string,
 ) {
   return value
     .replace(
@@ -210,7 +222,8 @@ function normalizeFullName(
 }
 
 function createCaseCode(
-  id: string,
+  id:
+    string,
 ) {
   return `CASE-${id
     .replace(
@@ -233,7 +246,9 @@ function validateNewCase(
       input.fullName,
     );
 
-  if (!fullName) {
+  if (
+    !fullName
+  ) {
     throw new Error(
       "PATIENT_NAME_REQUIRED",
     );
@@ -270,7 +285,8 @@ function validateNewCase(
   }
 
   if (
-    sex === "unknown"
+    sex ===
+    "unknown"
   ) {
     throw new Error(
       "SEX_REQUIRED",
@@ -337,22 +353,19 @@ function validateNewCase(
   };
 }
 
-function requiredPhotosCaptured(
+/**
+ * دیگر position مشخصی اجباری نیست.
+ *
+ * تنها قانون:
+ * Case باید حداقل یک عکس داشته باشد.
+ */
+function minimumPhotosCaptured(
   photos:
     StoredPhoto[],
 ) {
-  return REQUIRED_CAPTURE_KINDS.every(
-    (
-      kind,
-    ) =>
-      photos.filter(
-        (
-          photo,
-        ) =>
-          photo.kind ===
-          kind,
-      ).length >=
-      MIN_PHOTOS_PER_REQUIRED_POSITION,
+  return (
+    photos.length >=
+    MIN_TOTAL_PHOTOS
   );
 }
 
@@ -396,7 +409,9 @@ function getDatabase() {
     );
   }
 
-  if (!databasePromise) {
+  if (
+    !databasePromise
+  ) {
     databasePromise =
       openDB<AirwayAssistantDatabase>(
         DATABASE_NAME,
@@ -507,25 +522,25 @@ function getDatabase() {
             }
 
             /* ------------------------------------------------------------ */
-            /* Outcome removal                                              */
+            /* Remove legacy Outcome store                                  */
             /* ------------------------------------------------------------ */
 
-           const nativeDatabase =
-  unwrap(
-    database,
-  );
+            const nativeDatabase =
+              unwrap(
+                database,
+              );
 
-if (
-  nativeDatabase
-    .objectStoreNames
-    .contains(
-      "outcomes",
-    )
-) {
-  nativeDatabase.deleteObjectStore(
-    "outcomes",
-  );
- }
+            if (
+              nativeDatabase
+                .objectStoreNames
+                .contains(
+                  "outcomes",
+                )
+            ) {
+              nativeDatabase.deleteObjectStore(
+                "outcomes",
+              );
+            }
 
             /* ------------------------------------------------------------ */
             /* Ensure indexes                                               */
@@ -563,7 +578,7 @@ if (
             }
 
             /* ------------------------------------------------------------ */
-            /* Data migration                                               */
+            /* Legacy migration                                             */
             /* ------------------------------------------------------------ */
 
             if (
@@ -573,7 +588,9 @@ if (
                 await caseStore
                   .openCursor();
 
-              while (cursor) {
+              while (
+                cursor
+              ) {
                 const original =
                   cursor.value as unknown as
                     LegacyCase &
@@ -588,7 +605,7 @@ if (
                 let changed =
                   false;
 
-                let migrated:
+                const migrated:
                   Record<
                     string,
                     unknown
@@ -596,75 +613,66 @@ if (
                     ...original,
                   };
 
-                /*
-                 * Migration قدیمی v1 → v2.
-                 */
                 if (
                   !original.clinical
                 ) {
-                  migrated = {
-                    ...migrated,
+                  Object.assign(
+                    migrated,
+                    {
+                      id:
+                        original.id,
 
-                    id:
-                      original.id,
+                      caseCode:
+                        original.caseCode,
 
-                    caseCode:
-                      original.caseCode,
+                      protocolVersion:
+                        "legacy-v1",
 
-                    protocolVersion:
-                      "legacy-v1",
+                      consent: {
+                        given:
+                          false,
 
-                    consent: {
-                      given:
-                        false,
+                        version:
+                          "legacy-unverified",
+                      },
 
-                      version:
-                        "legacy-unverified",
+                      clinical:
+                        unknownClinical(
+                          original,
+                        ),
+
+                      heightCm:
+                        original.heightCm,
+
+                      weightKg:
+                        original.weightKg,
+
+                      neckMobility:
+                        original.neckMobility ??
+                        "unknown",
+
+                      notes:
+                        original.notes,
+
+                      studyStatus:
+                        "preop_draft",
+
+                      syncStatus:
+                        original.syncStatus ??
+                        "draft",
+
+                      createdAt:
+                        original.createdAt,
+
+                      updatedAt:
+                        original.updatedAt,
                     },
-
-                    clinical:
-                      unknownClinical(
-                        original,
-                      ),
-
-                    heightCm:
-                      original.heightCm,
-
-                    weightKg:
-                      original.weightKg,
-
-                    neckMobility:
-                      original.neckMobility ??
-                      "unknown",
-
-                    notes:
-                      original.notes,
-
-                    studyStatus:
-                      "preop_draft",
-
-                    syncStatus:
-                      original.syncStatus ??
-                      "draft",
-
-                    createdAt:
-                      original.createdAt,
-
-                    updatedAt:
-                      original.updatedAt,
-                  };
+                  );
 
                   changed =
                     true;
                 }
 
-                /*
-                 * Outcome دیگر در workflow وجود ندارد.
-                 *
-                 * Caseهای قدیمی که روی Outcome
-                 * مانده‌اند، مستقیماً capture_completed
-                 * در نظر گرفته می‌شوند.
-                 */
                 const oldStudyStatus =
                   String(
                     migrated.studyStatus ??
@@ -718,7 +726,7 @@ if (
 }
 
 /* -------------------------------------------------------------------------- */
-/* Case                                                                       */
+/* Cases                                                                      */
 /* -------------------------------------------------------------------------- */
 
 export async function createCase(
@@ -733,7 +741,9 @@ export async function createCase(
   const operator =
     getOperatorProfile();
 
-  if (!operator) {
+  if (
+    !operator
+  ) {
     throw new Error(
       "OPERATOR_PROFILE_REQUIRED",
     );
@@ -968,7 +978,9 @@ export async function savePhoto(
       caseId,
     );
 
-  if (!airwayCase) {
+  if (
+    !airwayCase
+  ) {
     throw new Error(
       "CASE_NOT_FOUND",
     );
@@ -991,6 +1003,39 @@ export async function savePhoto(
     );
   }
 
+  const existingPhotos =
+    await photoStore
+      .index(
+        "by-case-id",
+      )
+      .getAll(
+        caseId,
+      );
+
+  const sameKindPhotos =
+    existingPhotos.filter(
+      (
+        photo,
+      ) =>
+        photo.kind ===
+        kind,
+    );
+
+  /*
+   * اگر عکس جدید است، limit را بررسی کن.
+   *
+   * Replace تعداد را زیاد نمی‌کند.
+   */
+  if (
+    !replacePhotoId &&
+    sameKindPhotos.length >=
+      MAX_PHOTOS_PER_POSITION
+  ) {
+    throw new Error(
+      "MAX_PHOTOS_PER_POSITION_REACHED",
+    );
+  }
+
   if (
     replacePhotoId
   ) {
@@ -1000,16 +1045,20 @@ export async function savePhoto(
       );
 
     if (
-      oldPhoto &&
-      oldPhoto.caseId ===
-        caseId &&
-      oldPhoto.kind ===
+      !oldPhoto ||
+      oldPhoto.caseId !==
+        caseId ||
+      oldPhoto.kind !==
         kind
     ) {
-      await photoStore.delete(
-        replacePhotoId,
+      throw new Error(
+        "PHOTO_NOT_FOUND",
       );
     }
+
+    await photoStore.delete(
+      replacePhotoId,
+    );
   }
 
   const now =
@@ -1060,7 +1109,7 @@ export async function savePhoto(
       );
 
   airwayCase.studyStatus =
-    requiredPhotosCaptured(
+    minimumPhotosCaptured(
       updatedPhotos,
     )
       ? "preop_ready"
@@ -1127,7 +1176,9 @@ export async function deletePhoto(
       photoId,
     );
 
-  if (!photo) {
+  if (
+    !photo
+  ) {
     return;
   }
 
@@ -1141,7 +1192,9 @@ export async function deletePhoto(
       photo.caseId,
     );
 
-  if (!airwayCase) {
+  if (
+    !airwayCase
+  ) {
     throw new Error(
       "CASE_NOT_FOUND",
     );
@@ -1168,7 +1221,7 @@ export async function deletePhoto(
     photoId,
   );
 
-  const remaining =
+  const remainingPhotos =
     await photoStore
       .index(
         "by-case-id",
@@ -1178,8 +1231,8 @@ export async function deletePhoto(
       );
 
   airwayCase.studyStatus =
-    requiredPhotosCaptured(
-      remaining,
+    minimumPhotosCaptured(
+      remainingPhotos,
     )
       ? "preop_ready"
       : "preop_draft";
@@ -1211,18 +1264,9 @@ export async function deletePhoto(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Finalize capture                                                           */
+/* Finalize Capture                                                           */
 /* -------------------------------------------------------------------------- */
 
-/**
- * بعد از تکمیل تصاویر:
- *
- * - عکس‌ها قفل می‌شوند.
- * - workflow تصویربرداری کامل می‌شود.
- * - Case مستقیماً وارد Queue ارسال می‌شود.
- *
- * دیگر هیچ Outcome مرحله‌ای وجود ندارد.
- */
 export async function finalizePreop(
   caseId:
     string,
@@ -1250,15 +1294,14 @@ export async function finalizePreop(
       caseId,
     );
 
-  if (!airwayCase) {
+  if (
+    !airwayCase
+  ) {
     throw new Error(
       "CASE_NOT_FOUND",
     );
   }
 
-  /*
-   * اگر قبلاً final شده، دوباره تغییرش نده.
-   */
   if (
     airwayCase.preopLockedAt
   ) {
@@ -1277,30 +1320,56 @@ export async function finalizePreop(
         caseId,
       );
 
-  const incompleteKinds =
-    REQUIRED_CAPTURE_KINDS.filter(
-      (
-        kind,
-      ) =>
-        photos.filter(
-          (
-            photo,
-          ) =>
-            photo.kind ===
-            kind,
-        ).length <
-        MIN_PHOTOS_PER_REQUIRED_POSITION,
-    );
-
+  /*
+   * فقط یک عکس در کل Case کافی است.
+   */
   if (
-    incompleteKinds.length >
-    0
+    photos.length <
+    MIN_TOTAL_PHOTOS
   ) {
     throw new Error(
-      `MISSING_IMAGES:${incompleteKinds.join(
-        ",",
-      )}`,
+      "MINIMUM_PHOTOS_REQUIRED",
     );
+  }
+
+  /*
+   * دفاع دوم:
+   * حتی اگر UI باگ داشت،
+   * IndexedDB بیشتر از limit نهایی نشود.
+   */
+  const counts =
+    new Map<
+      CaptureKind,
+      number
+    >();
+
+  for (
+    const photo of
+    photos
+  ) {
+    counts.set(
+      photo.kind,
+      (
+        counts.get(
+          photo.kind,
+        ) ??
+        0
+      ) + 1,
+    );
+  }
+
+  for (
+    const count of
+    counts.values()
+  ) {
+    if (
+      count >
+      MAX_PHOTOS_PER_POSITION
+    ) {
+      throw new Error(
+        "MAX_PHOTOS_PER_POSITION_REACHED",
+      );
+    }
   }
 
   const now =
@@ -1334,7 +1403,7 @@ export async function finalizePreop(
       createAuditEntry(
         caseId,
         "preop_locked",
-        "capture_completed",
+        `capture_completed;photoCount=${photos.length}`,
       ),
     );
 
@@ -1376,7 +1445,9 @@ export async function updateCaseStatus(
       caseId,
     );
 
-  if (!airwayCase) {
+  if (
+    !airwayCase
+  ) {
     throw new Error(
       "CASE_NOT_FOUND",
     );
@@ -1440,4 +1511,3 @@ export async function getAuditByCase(
       caseId,
     );
 }
-

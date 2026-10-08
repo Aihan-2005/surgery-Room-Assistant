@@ -35,10 +35,11 @@ import {
 
 import {
   MAX_PHOTOS_PER_POSITION,
-  MIN_PHOTOS_PER_REQUIRED_POSITION,
+  MIN_TOTAL_PHOTOS,
 } from "@/lib/config/study-protocol";
 
 import {
+  deletePhoto,
   getCase,
   getPhotosByCase,
   savePhoto,
@@ -111,7 +112,9 @@ export default function CapturePage() {
     loading,
     setLoading,
   ] =
-    useState(true);
+    useState(
+      true,
+    );
 
   const [
     savingKind,
@@ -122,10 +125,20 @@ export default function CapturePage() {
     >(null);
 
   const [
+    deletingPhotoId,
+    setDeletingPhotoId,
+  ] =
+    useState<
+      string | null
+    >(null);
+
+  const [
     submitting,
     setSubmitting,
   ] =
-    useState(false);
+    useState(
+      false,
+    );
 
   const [
     error,
@@ -134,6 +147,10 @@ export default function CapturePage() {
     useState<
       string | null
     >(null);
+
+  /* ---------------------------------------------------------------------- */
+  /* Preview URLs                                                           */
+  /* ---------------------------------------------------------------------- */
 
   const createPreviewUrl =
     useCallback(
@@ -171,6 +188,10 @@ export default function CapturePage() {
       },
       [],
     );
+
+  /* ---------------------------------------------------------------------- */
+  /* Load                                                                   */
+  /* ---------------------------------------------------------------------- */
 
   const loadData =
     useCallback(
@@ -215,6 +236,21 @@ export default function CapturePage() {
           setAirwayCase(
             loadedCase,
           );
+
+          /*
+           * URLهای Preview قدیمی در صورت reload داخلی
+           * آزاد شوند.
+           */
+          for (
+            const url of
+            previewUrlsRef.current
+          ) {
+            URL.revokeObjectURL(
+              url,
+            );
+          }
+
+          previewUrlsRef.current.clear();
 
           const previews:
             PhotosByKind = {};
@@ -329,51 +365,9 @@ export default function CapturePage() {
     };
   }, []);
 
-  const requiredSteps =
-    useMemo(
-      () =>
-        CAPTURE_PROTOCOL.filter(
-          (
-            step,
-          ) =>
-            step.required,
-        ),
-      [],
-    );
-
-  const requiredPhotoTotal =
-    requiredSteps.length *
-    MIN_PHOTOS_PER_REQUIRED_POSITION;
-
-  const completedPhotoTotal =
-    useMemo(
-      () =>
-        requiredSteps.reduce(
-          (
-            total,
-            step,
-          ) => {
-            const count =
-              photos[
-                step.kind
-              ]?.length ??
-              0;
-
-            return (
-              total +
-              Math.min(
-                count,
-                MIN_PHOTOS_PER_REQUIRED_POSITION,
-              )
-            );
-          },
-          0,
-        ),
-      [
-        photos,
-        requiredSteps,
-      ],
-    );
+  /* ---------------------------------------------------------------------- */
+  /* Counts                                                                 */
+  /* ---------------------------------------------------------------------- */
 
   const totalCapturedPhotos =
     useMemo(
@@ -397,19 +391,32 @@ export default function CapturePage() {
       ],
     );
 
-  const isComplete =
-    requiredSteps.every(
-      (
-        step,
-      ) =>
-        (
-          photos[
-            step.kind
-          ]?.length ??
-          0
-        ) >=
-        MIN_PHOTOS_PER_REQUIRED_POSITION,
+  const photographedPositions =
+    useMemo(
+      () =>
+        Object.values(
+          photos,
+        ).filter(
+          (
+            items,
+          ) =>
+            (
+              items?.length ??
+              0
+            ) >
+            0,
+        ).length,
+      [
+        photos,
+      ],
     );
+
+  /*
+   * فقط یک عکس در کل Case کافی است.
+   */
+  const isReady =
+    totalCapturedPhotos >=
+    MIN_TOTAL_PHOTOS;
 
   const remoteLocked =
     airwayCase
@@ -421,6 +428,17 @@ export default function CapturePage() {
       airwayCase
         ?.preopLockedAt,
     );
+
+  const busy =
+    savingKind !==
+      null ||
+    deletingPhotoId !==
+      null ||
+    submitting;
+
+  /* ---------------------------------------------------------------------- */
+  /* Save / replace                                                         */
+  /* ---------------------------------------------------------------------- */
 
   async function handlePhoto(
     kind:
@@ -455,21 +473,21 @@ export default function CapturePage() {
         MAX_PHOTOS_PER_POSITION
     ) {
       setError(
-        `حداکثر ${MAX_PHOTOS_PER_POSITION} عکس برای هر پوزیشن مجاز است.`,
+        `برای هر پوزیشن حداکثر ${MAX_PHOTOS_PER_POSITION} عکس قابل ثبت است.`,
       );
 
       return;
     }
 
-    setSavingKind(
-      kind,
-    );
-
-    setError(
-      null,
-    );
-
     try {
+      setSavingKind(
+        kind,
+      );
+
+      setError(
+        null,
+      );
+
       const storedPhoto =
         await savePhoto(
           caseId,
@@ -571,9 +589,26 @@ export default function CapturePage() {
         saveError,
       );
 
-      setError(
-        "ذخیره تصویر انجام نشد.",
-      );
+      const message =
+        saveError instanceof
+          Error
+          ? saveError.message
+          : "";
+
+      if (
+        message ===
+        "MAX_PHOTOS_PER_POSITION_REACHED"
+      ) {
+        setError(
+          `برای هر پوزیشن حداکثر ${MAX_PHOTOS_PER_POSITION} عکس قابل ثبت است.`,
+        );
+      } else {
+        setError(
+          "ذخیره تصویر انجام نشد.",
+        );
+      }
+
+      throw saveError;
     } finally {
       setSavingKind(
         null,
@@ -581,12 +616,129 @@ export default function CapturePage() {
     }
   }
 
-  async function handleReady() {
+  /* ---------------------------------------------------------------------- */
+  /* Delete                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  async function handleDeletePhoto(
+    kind:
+      CaptureKind,
+
+    photoId:
+      string,
+  ) {
     if (
-      !isComplete
+      remoteLocked ||
+      captureLocked
     ) {
       setError(
-        `برای هر یک از ${requiredSteps.length} پوزیشن، حداقل ${MIN_PHOTOS_PER_REQUIRED_POSITION} عکس ثبت کنید.`,
+        "Case نهایی شده و دیگر امکان حذف تصویر وجود ندارد.",
+      );
+
+      return;
+    }
+
+    try {
+      setDeletingPhotoId(
+        photoId,
+      );
+
+      setError(
+        null,
+      );
+
+      await deletePhoto(
+        photoId,
+      );
+
+      setPhotos(
+        (
+          current,
+        ) => {
+          const list =
+            current[
+              kind
+            ] ??
+            [];
+
+          const deleted =
+            list.find(
+              (
+                item,
+              ) =>
+                item.photo.id ===
+                photoId,
+            );
+
+          if (
+            deleted
+          ) {
+            revokePreviewUrl(
+              deleted.url,
+            );
+          }
+
+          const next =
+            list.filter(
+              (
+                item,
+              ) =>
+                item.photo.id !==
+                photoId,
+            );
+
+          return {
+            ...current,
+
+            [kind]:
+              next,
+          };
+        },
+      );
+
+      const updatedCase =
+        await getCase(
+          caseId,
+        );
+
+      if (
+        updatedCase
+      ) {
+        setAirwayCase(
+          updatedCase,
+        );
+      }
+    } catch (
+      deleteError
+    ) {
+      console.error(
+        "Failed to delete photo:",
+        deleteError,
+      );
+
+      setError(
+        "حذف تصویر انجام نشد.",
+      );
+
+      throw deleteError;
+    } finally {
+      setDeletingPhotoId(
+        null,
+      );
+    }
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Finalize                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  async function handleReady() {
+    if (
+      totalCapturedPhotos <
+      MIN_TOTAL_PHOTOS
+    ) {
+      setError(
+        "برای تکمیل Case حداقل یک عکس از یکی از پوزیشن‌ها ثبت کنید.",
       );
 
       return;
@@ -628,15 +780,34 @@ export default function CapturePage() {
         readyError,
       );
 
-      setError(
-        "تکمیل تصویربرداری انجام نشد.",
-      );
+      const message =
+        readyError instanceof
+          Error
+          ? readyError.message
+          : "";
+
+      if (
+        message ===
+        "MINIMUM_PHOTOS_REQUIRED"
+      ) {
+        setError(
+          "برای تکمیل Case حداقل یک عکس ثبت کنید.",
+        );
+      } else {
+        setError(
+          "تکمیل تصویربرداری انجام نشد.",
+        );
+      }
     } finally {
       setSubmitting(
         false,
       );
     }
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* Loading                                                                */
+  /* ---------------------------------------------------------------------- */
 
   if (
     loading
@@ -674,6 +845,7 @@ export default function CapturePage() {
             bg-red-50
             p-4
             text-sm
+            leading-6
             text-red-700
           "
         >
@@ -684,15 +856,9 @@ export default function CapturePage() {
     );
   }
 
-  const progress =
-    requiredPhotoTotal ===
-      0
-      ? 0
-      : (
-          completedPhotoTotal /
-          requiredPhotoTotal
-        ) *
-        100;
+  /* ---------------------------------------------------------------------- */
+  /* Render                                                                 */
+  /* ---------------------------------------------------------------------- */
 
   return (
     <div
@@ -769,12 +935,11 @@ export default function CapturePage() {
               text-slate-500
             "
           >
-            هر ۶ پوزیشن را ثبت کنید.
-            برای هر پوزیشن حداقل{" "}
-            {
-              MIN_PHOTOS_PER_REQUIRED_POSITION
-            }{" "}
-            و حداکثر{" "}
+            هیچ پوزیشن خاصی اجباری
+            نیست. برای تکمیل Case حداقل
+            یک عکس از هر پوزیشن دلخواه
+            ثبت کنید. برای هر پوزیشن
+            حداکثر{" "}
             {
               MAX_PHOTOS_PER_POSITION
             }{" "}
@@ -789,6 +954,7 @@ export default function CapturePage() {
             "
           >
             بیمار:{" "}
+
             <span
               className="
                 font-bold
@@ -804,6 +970,8 @@ export default function CapturePage() {
           </p>
         </div>
       </header>
+
+      {/* Summary */}
 
       <section
         className="
@@ -844,23 +1012,19 @@ export default function CapturePage() {
                 text-slate-900
               "
             >
-              تکمیل پوزیشن‌ها
+              تصاویر ثبت‌شده
             </p>
           </div>
 
           <span
             className="
-              text-base
+              text-xl
               font-bold
               text-sky-700
             "
           >
             {
-              completedPhotoTotal
-            }
-            {" / "}
-            {
-              requiredPhotoTotal
+              totalCapturedPhotos
             }
           </span>
         </div>
@@ -868,42 +1032,74 @@ export default function CapturePage() {
         <div
           className="
             mt-4
-            h-2
-            overflow-hidden
-            rounded-full
-            bg-slate-100
+            grid
+            grid-cols-2
+            gap-3
           "
         >
           <div
             className="
-              h-full
-              rounded-full
-              bg-sky-600
-              transition-all
+              rounded-2xl
+              bg-slate-50
+              p-3
             "
-            style={{
-              width:
-                `${progress}%`,
-            }}
-          />
+          >
+            <p
+              className="
+                text-[11px]
+                text-slate-500
+              "
+            >
+              پوزیشن‌های دارای عکس
+            </p>
+
+            <p
+              className="
+                mt-1
+                text-lg
+                font-bold
+                text-slate-900
+              "
+            >
+              {
+                photographedPositions
+              }
+            </p>
+          </div>
+
+          <div
+            className="
+              rounded-2xl
+              bg-slate-50
+              p-3
+            "
+          >
+            <p
+              className="
+                text-[11px]
+                text-slate-500
+              "
+            >
+              حداقل لازم
+            </p>
+
+            <p
+              className="
+                mt-1
+                text-lg
+                font-bold
+                text-slate-900
+              "
+            >
+              {
+                MIN_TOTAL_PHOTOS
+              }{" "}
+              عکس
+            </p>
+          </div>
         </div>
 
-        <p
-          className="
-            mt-3
-            text-xs
-            text-slate-500
-          "
-        >
-          مجموع عکس‌های ثبت‌شده:{" "}
-          <strong>
-            {
-              totalCapturedPhotos
-            }
-          </strong>
-        </p>
-
-        {isComplete && (
+        {isReady ? (
           <div
             className="
               mt-4
@@ -913,22 +1109,45 @@ export default function CapturePage() {
               rounded-xl
               bg-emerald-50
               px-3
-              py-2.5
+              py-3
               text-xs
+              leading-6
               text-emerald-700
             "
           >
             <CheckCircle2
               size={17}
+              className="
+                shrink-0
+              "
             />
 
-            هر ۶ پوزیشن تکمیل شده‌اند.
-            در صورت نیاز می‌توانید قبل
-            از نهایی‌سازی عکس‌های بیشتری
-            اضافه کنید.
+            حداقل عکس لازم ثبت شده است.
+            در صورت نیاز می‌توانید عکس‌های
+            بیشتری ثبت کنید یا عکس نامناسب
+            را حذف کنید.
+          </div>
+        ) : (
+          <div
+            className="
+              mt-4
+              rounded-xl
+              bg-amber-50
+              px-3
+              py-3
+              text-xs
+              leading-6
+              text-amber-800
+            "
+          >
+            برای فعال‌شدن ارسال، حداقل
+            یک عکس از یکی از پوزیشن‌ها
+            ثبت کنید.
           </div>
         )}
       </section>
+
+      {/* Positions */}
 
       <div
         className="
@@ -954,9 +1173,6 @@ export default function CapturePage() {
               totalPositions={
                 CAPTURE_PROTOCOL.length
               }
-              requiredPhotoCount={
-                MIN_PHOTOS_PER_REQUIRED_POSITION
-              }
               maxPhotoCount={
                 MAX_PHOTOS_PER_POSITION
               }
@@ -977,9 +1193,7 @@ export default function CapturePage() {
                 }),
               )}
               disabled={
-                savingKind !==
-                  null ||
-                submitting ||
+                busy ||
                 remoteLocked ||
                 captureLocked
               }
@@ -991,6 +1205,14 @@ export default function CapturePage() {
                   step.kind,
                   image,
                   replaceId,
+                )
+              }
+              onPhotoDelete={(
+                photoId,
+              ) =>
+                handleDeletePhoto(
+                  step.kind,
+                  photoId,
                 )
               }
             />
@@ -1019,8 +1241,32 @@ export default function CapturePage() {
             "
           />
 
-          در حال ذخیره تصویر روی
-          دستگاه...
+          در حال ذخیره تصویر روی دستگاه...
+        </div>
+      )}
+
+      {deletingPhotoId && (
+        <div
+          className="
+            mt-4
+            flex
+            items-center
+            gap-2
+            rounded-2xl
+            bg-red-50
+            p-4
+            text-sm
+            text-red-700
+          "
+        >
+          <LoaderCircle
+            size={18}
+            className="
+              animate-spin
+            "
+          />
+
+          در حال حذف تصویر...
         </div>
       )}
 
@@ -1050,11 +1296,12 @@ export default function CapturePage() {
             text-amber-800
           "
         >
-          در حالت آفلاین تصاویر داخل
-          IndexedDB ذخیره می‌شوند.
-          بعد از تکمیل، Case در صف باقی
-          می‌ماند و در زمان مناسب به
-          Backend ارسال می‌شود.
+          عکس‌ها ابتدا داخل IndexedDB
+          ذخیره می‌شوند. بنابراین قبل از
+          نهایی‌سازی می‌توانید تصویر
+          نامناسب را حذف یا دوباره ثبت
+          کنید. در حالت آفلاین نیز تصاویر
+          روی دستگاه باقی می‌مانند.
         </p>
       </div>
 
@@ -1084,10 +1331,8 @@ export default function CapturePage() {
             handleReady
           }
           disabled={
-            !isComplete ||
-            submitting ||
-            savingKind !==
-              null ||
+            !isReady ||
+            busy ||
             remoteLocked
           }
           className="
@@ -1153,3 +1398,4 @@ export default function CapturePage() {
     </div>
   );
 }
+
