@@ -59,7 +59,7 @@ class PhotoInline(admin.TabularInline):
 class AssessmentAdmin(admin.ModelAdmin):
     list_display = ("short_id", "full_name", "device", "age", "sex", "neck_movement",
                     "is_complete", "photos", "created_at", "received_at")
-    list_filter = ("is_complete", "neck_movement", "sex", "device")
+    list_filter = ("is_complete", "neck_movement", "previous_difficult_intubation", "sex", "device")
     search_fields = ("full_name", "id")
     date_hierarchy = "created_at"
     inlines = [PhotoInline]

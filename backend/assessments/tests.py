@@ -26,6 +26,7 @@ from .models import Assessment, AssessmentPhoto, Device
 
 API = "/api"
 TEMP_MEDIA = tempfile.mkdtemp()
+ALL_POSITIONS = ("front", "mallampati", "open_mouth", "side", "upper_lip_bite", "head_back_side")
 
 
 def tearDownModule():
@@ -71,6 +72,7 @@ class BaseAPITest(APITestCase):
             "height_cm": "175.0",
             "weight_kg": "80.0",
             "neck_movement": "normal",
+            "previous_difficult_intubation": "no",
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         data.update(overrides)
@@ -175,6 +177,20 @@ class AssessmentTests(BaseAPITest):
         _, response = self.put_case(self.doctor, neck_movement="bent")
         self.assertEqual(response.status_code, 400)
 
+    def test_previous_difficult_intubation_accepts_yes_no_unknown(self):
+        for value in ("yes", "no", "unknown"):
+            _, response = self.put_case(self.doctor, previous_difficult_intubation=value)
+            self.assertEqual(response.status_code, 201, value)
+        _, response = self.put_case(self.doctor, previous_difficult_intubation="maybe")
+        self.assertEqual(response.status_code, 400)
+
+    def test_previous_difficult_intubation_is_required(self):
+        data = self.case_data()
+        del data["previous_difficult_intubation"]
+        response = self.doctor.put(f"{API}/assessments/{uuid.uuid4()}/", data, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("previous_difficult_intubation", response.data)
+
     def test_sex_must_be_m_or_f(self):
         _, response = self.put_case(self.doctor, sex="X")
         self.assertEqual(response.status_code, 400)
@@ -204,8 +220,8 @@ class PhotoTests(BaseAPITest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(AssessmentPhoto.objects.filter(assessment_id=self.case_id).count(), 1)
 
-    def test_all_four_positions_are_accepted(self):
-        for position in ("front", "mallampati", "open_mouth", "side"):
+    def test_all_positions_are_accepted(self):
+        for position in ALL_POSITIONS:
             _, response = self.upload(self.doctor, self.case_id, position)
             self.assertEqual(response.status_code, 201, position)
 
@@ -290,7 +306,7 @@ class CompleteTests(BaseAPITest):
         self.assertTrue(Assessment.objects.get(id=self.case_id).is_complete)
 
     def test_five_photos_in_every_position_succeeds(self):
-        for position in ("front", "mallampati", "open_mouth", "side"):
+        for position in ALL_POSITIONS:
             self.upload_many(self.doctor, self.case_id, position, 5)
         self.assertEqual(self.complete(self.doctor, self.case_id).status_code, 200)
 

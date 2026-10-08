@@ -27,11 +27,19 @@ class Position(models.TextChoices):
     MALLAMPATI = "mallampati", "Mallampati view"
     OPEN_MOUTH = "open_mouth", "Open mouth view"
     SIDE = "side", "Side view"
+    UPPER_LIP_BITE = "upper_lip_bite", "Upper lip bite view"
+    HEAD_BACK_SIDE = "head_back_side", "Head back side view"
 
 
 class NeckMovement(models.TextChoices):
     NORMAL = "normal", "Normal"
     LIMITED = "limited", "Limited"
+
+
+class DifficultIntubation(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    UNKNOWN = "unknown", "Don't know"
 
 
 class Assessment(models.Model):
@@ -43,6 +51,7 @@ class Assessment(models.Model):
     height_cm = models.DecimalField(max_digits=5, decimal_places=1, validators=[MinValueValidator(30)])
     weight_kg = models.DecimalField(max_digits=5, decimal_places=1, validators=[MinValueValidator(1)])
     neck_movement = models.CharField(max_length=10, choices=NeckMovement.choices)
+    previous_difficult_intubation = models.CharField(max_length=10, choices=DifficultIntubation.choices)
     is_complete = models.BooleanField(default=False)
     created_at = models.DateTimeField()  # time on the phone when the case was saved
     received_at = models.DateTimeField(auto_now_add=True)

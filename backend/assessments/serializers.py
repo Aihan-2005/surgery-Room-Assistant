@@ -16,7 +16,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
         model = Assessment
         fields = [
             "id", "full_name", "age", "sex", "height_cm", "weight_kg",
-            "neck_movement",
+            "neck_movement", "previous_difficult_intubation",
             "created_at", "received_at", "is_complete", "photo_count",
         ]
         read_only_fields = ["id", "received_at", "is_complete", "photo_count"]
