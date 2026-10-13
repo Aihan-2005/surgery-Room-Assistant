@@ -1,10 +1,9 @@
 "use client";
 
 import {
-  Cloud,
-  CloudOff,
-  HardDrive,
   LoaderCircle,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 import {
@@ -38,7 +37,9 @@ export function NetworkPill() {
       >
         <LoaderCircle
           size={14}
-          className="animate-spin"
+          className="
+            animate-spin
+          "
         />
 
         بررسی اتصال
@@ -46,96 +47,60 @@ export function NetworkPill() {
     );
   }
 
+  /*
+   * این indicator فقط وضعیت اینترنت
+   * را به کاربر نشان می‌دهد.
+   */
   if (
-    connectivity.mode ===
-    "online"
+    connectivity.internetReachable
   ) {
+    const weak =
+      connectivity.mode ===
+      "weak";
+
     return (
       <div
-        title="اتصال مناسب است و ارسال خودکار فعال است."
-        className="
+        title={
+          weak
+            ? "اینترنت متصل است، اما سرعت اتصال پایین است."
+            : "اینترنت متصل است."
+        }
+        className={`
           inline-flex
           items-center
           gap-1.5
           rounded-full
-          bg-emerald-50
           px-3
           py-1.5
           text-xs
           font-semibold
-          text-emerald-700
-        "
+          ${
+            weak
+              ? `
+                bg-amber-50
+                text-amber-700
+              `
+              : `
+                bg-emerald-50
+                text-emerald-700
+              `
+          }
+        `}
       >
-        <Cloud
+        <Wifi
           size={14}
         />
 
-        آنلاین
-      </div>
-    );
-  }
-
-  if (
-    connectivity.mode ===
-    "local-only"
-  ) {
-    return (
-      <div
-        title="اینترنت در دسترس است اما Backend هنوز متصل نشده؛ اطلاعات روی دستگاه و در صف ذخیره می‌شوند."
-        className="
-          inline-flex
-          items-center
-          gap-1.5
-          rounded-full
-          bg-sky-50
-          px-3
-          py-1.5
-          text-xs
-          font-semibold
-          text-sky-700
-        "
-      >
-        <HardDrive
-          size={14}
-        />
-
-        ذخیره محلی
-      </div>
-    );
-  }
-
-  if (
-    connectivity.mode ===
-    "weak"
-  ) {
-    return (
-      <div
-        title="اتصال ضعیف است؛ ارسال متوقف شده و تصاویر روی دستگاه باقی می‌مانند."
-        className="
-          inline-flex
-          items-center
-          gap-1.5
-          rounded-full
-          bg-amber-50
-          px-3
-          py-1.5
-          text-xs
-          font-semibold
-          text-amber-700
-        "
-      >
-        <CloudOff
-          size={14}
-        />
-
-        آفلاین
+        {weak
+          ? "آنلاین — ضعیف"
+          : "آنلاین"}
       </div>
     );
   }
 
   return (
     <div
-      title="ارسال ممکن نیست؛ تصاویر روی دستگاه ذخیره می‌شوند."
+      title="اتصال اینترنت قطع است."
       className="
         inline-flex
         items-center
@@ -149,7 +114,7 @@ export function NetworkPill() {
         text-amber-700
       "
     >
-      <CloudOff
+      <WifiOff
         size={14}
       />
 

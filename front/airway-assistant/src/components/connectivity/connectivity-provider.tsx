@@ -35,14 +35,8 @@ interface ConnectivityProviderProps {
     ReactNode;
 }
 
-/*
- * Heartbeat فقط برای UI است.
- *
- * eventهای online/focus/visibility
- * تغییر اتصال را سریع‌تر می‌گیرند.
- */
 const HEARTBEAT_INTERVAL_MS =
-  60_000;
+  10_000;
 
 export function ConnectivityProvider({
   children,
@@ -56,12 +50,8 @@ export function ConnectivityProvider({
     );
 
   const mountedRef =
-    useRef(true);
+    useRef(false);
 
-  /*
-   * اگر چند component هم‌زمان refresh بخواهند،
-   * فقط یک health request واقعی ارسال شود.
-   */
   const inFlightRef =
     useRef<
       Promise<ConnectivitySnapshot> | null
@@ -117,10 +107,6 @@ export function ConnectivityProvider({
     const intervalId =
       window.setInterval(
         () => {
-          /*
-           * وقتی tab/PWA hidden است،
-           * برای status UI heartbeat لازم نیست.
-           */
           if (
             document.visibilityState ===
             "visible"
@@ -138,14 +124,15 @@ export function ConnectivityProvider({
 
     const handleOffline =
       () => {
-        /*
-         * checkConnectivity در حالت offline
-         * هیچ request شبکه‌ای نمی‌زند.
-         */
         void refresh();
       };
 
     const handleFocus =
+      () => {
+        void refresh();
+      };
+
+    const handlePageShow =
       () => {
         void refresh();
       };
@@ -175,6 +162,11 @@ export function ConnectivityProvider({
       handleFocus,
     );
 
+    window.addEventListener(
+      "pageshow",
+      handlePageShow,
+    );
+
     document.addEventListener(
       "visibilitychange",
       handleVisibilityChange,
@@ -201,6 +193,11 @@ export function ConnectivityProvider({
       window.removeEventListener(
         "focus",
         handleFocus,
+      );
+
+      window.removeEventListener(
+        "pageshow",
+        handlePageShow,
       );
 
       document.removeEventListener(

@@ -17,9 +17,7 @@ export type ConnectivityReason =
   | "connection_too_slow"
   | "backend_not_configured"
   | "backend_unreachable"
-  | "database_unavailable"
-  | "device_not_registered"
-  | "device_unauthorized";
+  | "database_unavailable";
 
 export interface ConnectivitySnapshot {
   mode:
@@ -43,10 +41,6 @@ export interface ConnectivitySnapshot {
   databaseReady:
     boolean;
 
-  /*
-   * فقط نشان می‌دهد token محلی داریم.
-   * صحت نهایی token موقع sync بررسی می‌شود.
-   */
   authenticated:
     boolean;
 
@@ -113,10 +107,6 @@ interface BackendProbeResponse {
 const PROBE_TIMEOUT_MS =
   6_000;
 
-/*
- * فقط اتصال‌های واقعاً بد را weak
- * در نظر می‌گیریم.
- */
 const WEAK_DOWNLINK_MBPS =
   0.5;
 
@@ -145,7 +135,7 @@ export function getBrowserConnection():
   );
 }
 
-function weakConnection(
+function isWeakConnection(
   connection:
     BrowserNetworkInformation | null,
 ) {
@@ -225,7 +215,7 @@ export async function checkConnectivity():
 
   if (
     typeof navigator ===
-      "undefined"
+    "undefined"
   ) {
     return snapshot({
       mode:
@@ -250,15 +240,14 @@ export async function checkConnectivity():
         false,
 
       authenticated:
-        hasDeviceToken,
+        false,
 
       ...common,
     });
   }
 
   /*
-   * اگر خود Browser قطع اینترنت را تشخیص داده،
-   * حتی health request هم ارسال نمی‌کنیم.
+   * Browser صریحاً می‌گوید اینترنت قطع است.
    */
   if (
     navigator.onLine ===
@@ -315,6 +304,11 @@ export async function checkConnectivity():
           method:
             "GET",
 
+          headers: {
+            Accept:
+              "application/json",
+          },
+
           cache:
             "no-store",
 
@@ -326,13 +320,17 @@ export async function checkConnectivity():
     const latency =
       Math.round(
         performance.now() -
-          startedAt,
+        startedAt,
       );
 
     const probe =
       (await response.json()) as
         BackendProbeResponse;
 
+    /*
+     * اینترنت هست، ولی آدرس سرور
+     * در Frontend تنظیم نشده.
+     */
     if (
       probe.configured !==
       true
@@ -369,13 +367,17 @@ export async function checkConnectivity():
       });
     }
 
+    /*
+     * Browser آنلاین است،
+     * ولی API جواب نمی‌دهد.
+     */
     if (
       probe.reachable !==
       true
     ) {
       return snapshot({
         mode:
-          "offline",
+          "local-only",
 
         reason:
           "backend_unreachable",
@@ -405,13 +407,17 @@ export async function checkConnectivity():
       });
     }
 
+    /*
+     * Backend جواب می‌دهد،
+     * ولی دیتابیس آماده نیست.
+     */
     if (
       probe.databaseReady !==
       true
     ) {
       return snapshot({
         mode:
-          "offline",
+          "local-only",
 
         reason:
           "database_unavailable",
@@ -441,15 +447,16 @@ export async function checkConnectivity():
       });
     }
 
-    /*
-     * اگر اتصال خیلی ضعیف باشد،
-     * برای تصاویر بزرگ فعلاً Queue بهتر است.
-     */
-    if (
-      weakConnection(
+    const weak =
+      isWeakConnection(
         connection,
-      )
-    ) {
+      );
+
+    /*
+     * سرعت پایین فقط یک هشدار است.
+     * Upload را متوقف نمی‌کنیم.
+     */
+    if (weak) {
       return snapshot({
         mode:
           "weak",
@@ -458,7 +465,7 @@ export async function checkConnectivity():
           "connection_too_slow",
 
         canUpload:
-          false,
+          true,
 
         internetReachable:
           true,
@@ -482,12 +489,6 @@ export async function checkConnectivity():
       });
     }
 
-    /*
-     * وجود token شرط online بودن نیست.
-     *
-     * syncCase خودش در صورت نیاز Device را
-     * register/re-register می‌کند.
-     */
     return snapshot({
       mode:
         "online",
@@ -526,9 +527,13 @@ export async function checkConnectivity():
       error,
     );
 
+    /*
+     * Browser هنوز online است.
+     * فقط ارسال فعلاً قابل انجام نیست.
+     */
     return snapshot({
       mode:
-        "offline",
+        "local-only",
 
       reason:
         "probe_failed",
@@ -589,3 +594,4 @@ export const INITIAL_CONNECTIVITY:
   checkedAt:
     "",
 };
+

@@ -63,6 +63,27 @@ function getBackendBaseUrl():
   }
 }
 
+function jsonResponse(
+  payload:
+    Record<
+      string,
+      unknown
+    >,
+) {
+  return NextResponse.json(
+    payload,
+    {
+      headers: {
+        "Cache-Control":
+          "no-store, no-cache, must-revalidate, max-age=0",
+
+        Pragma:
+          "no-cache",
+      },
+    },
+  );
+}
+
 async function readPayload(
   response:
     Response,
@@ -76,30 +97,12 @@ async function readPayload(
   }
 }
 
-function response(
-  payload:
-    Record<
-      string,
-      unknown
-    >,
-) {
-  return NextResponse.json(
-    payload,
-    {
-      headers: {
-        "Cache-Control":
-          "no-store, max-age=0",
-      },
-    },
-  );
-}
-
 export async function GET() {
   const backendUrl =
     getBackendBaseUrl();
 
   if (!backendUrl) {
-    return response({
+    return jsonResponse({
       configured:
         false,
 
@@ -149,13 +152,12 @@ export async function GET() {
       );
 
     /*
-     * اگر از Backend هر HTTP response بگیریم،
-     * خود Django reachable است.
+     * حتی اگر Backend 503 بدهد،
+     * یعنی خود سرور reachable است.
      *
-     * ممکن است DB مشکل داشته باشد و Backend
-     * عمداً 503 برگرداند.
+     * فقط databaseReady false است.
      */
-    return response({
+    return jsonResponse({
       configured:
         true,
 
@@ -174,11 +176,11 @@ export async function GET() {
     error
   ) {
     console.warn(
-      "Backend health check failed:",
+      "Health check failed:",
       error,
     );
 
-    return response({
+    return jsonResponse({
       configured:
         true,
 
@@ -194,3 +196,4 @@ export async function GET() {
     );
   }
 }
+

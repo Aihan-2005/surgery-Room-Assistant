@@ -18,29 +18,13 @@ import {
 } from "@/lib/api/sync-case";
 
 import {
-  checkConnectivity,
-} from "@/lib/network/connectivity";
-
-import {
   useConnectivity,
 } from "@/components/connectivity/connectivity-provider";
 
+const AUTO_SYNC_INTERVAL_MS =
+  10_000;
 
-const FALLBACK_SYNC_INTERVAL_MS =
-  45_000;
-
-
-/*
- * مهم:
- *
- * تمام بررسی‌های navigator.onLine فقط
- * از طریق این تابع انجام می‌شوند.
- *
- * این کار مشکل TypeScript narrowing
- * و خطای TS2367 را برطرف می‌کند.
- */
-function canTryNetwork():
-  boolean {
+function browserIsOnline() {
   if (
     typeof navigator ===
     "undefined"
@@ -48,11 +32,11 @@ function canTryNetwork():
     return false;
   }
 
-  return Boolean(
-    navigator.onLine,
+  return (
+    navigator.onLine !==
+    false
   );
 }
-
 
 export function AutoSyncManager() {
   const {
@@ -60,33 +44,20 @@ export function AutoSyncManager() {
   } =
     useConnectivity();
 
-  /*
-   * جلوگیری از اجرای همزمان
-   * چند processQueue.
-   */
   const runningRef =
     useRef(false);
-
 
   const processQueue =
     useCallback(
       async () => {
-        /*
-         * قبلاً یک Queue processor
-         * در حال اجراست.
-         */
         if (
           runningRef.current
         ) {
           return;
         }
 
-        /*
-         * اگر Browser offline است،
-         * هیچ درخواست شبکه‌ای ارسال نکن.
-         */
         if (
-          !canTryNetwork()
+          !browserIsOnline()
         ) {
           return;
         }
@@ -96,23 +67,12 @@ export function AutoSyncManager() {
 
         try {
           /*
-           * اول فقط IndexedDB محلی
-           * بررسی می‌شود.
-           *
-           * هیچ request شبکه‌ای اینجا نداریم.
+           * اگر برنامه در وسط sync بسته شده بود،
+           * Caseهای syncing قدیمی دوباره queued شوند.
            */
           const allCases =
             await getAllCases();
 
-
-          /*
-           * اگر برنامه وسط upload بسته شده
-           * باشد ممکن است Case روی syncing
-           * باقی مانده باشد.
-           *
-           * اگر همین الان upload واقعی برایش
-           * در حال اجرا نیست، دوباره queued شود.
-           */
           for (
             const airwayCase of
             allCases
@@ -131,10 +91,9 @@ export function AutoSyncManager() {
             }
           }
 
-
           /*
-           * Queue واقعی را از IndexedDB
-           * دریافت می‌کنیم.
+           * فقط Caseهای queued برای
+           * AutoSync انتخاب می‌شوند.
            */
           const queuedCases =
             (
@@ -152,13 +111,6 @@ export function AutoSyncManager() {
                 ).getTime(),
             );
 
-
-          /*
-           * خیلی مهم:
-           *
-           * Queue خالی است؟
-           * هیچ request به Backend نزن.
-           */
           if (
             queuedCases.length ===
             0
@@ -166,26 +118,18 @@ export function AutoSyncManager() {
             return;
           }
 
-
-          /*
-           * ممکن است از زمان شروع تابع
-           * اینترنت قطع شده باشد.
-           */
           if (
-            !canTryNetwork()
+            !browserIsOnline()
           ) {
             return;
           }
 
-
           /*
-           * فقط حالا که واقعاً Case
-           * برای ارسال داریم، Backend
-           * را بررسی می‌کنیم.
+           * وضعیت ارسال را بررسی کن و
+           * همزمان UI را هم refresh کن.
            */
           const connectivity =
-            await checkConnectivity();
-
+            await refresh();
 
           if (
             !connectivity.canUpload
@@ -193,27 +137,15 @@ export function AutoSyncManager() {
             return;
           }
 
-
-          /*
-           * Caseها یکی‌یکی ارسال می‌شوند.
-           *
-           * عمداً parallel upload نداریم
-           * تا فشار سرور و مصرف RAM کمتر باشد.
-           */
           for (
             const airwayCase of
             queuedCases
           ) {
-            /*
-             * قبل از هر Case دوباره فقط
-             * وضعیت Browser را بررسی می‌کنیم.
-             */
             if (
-              !canTryNetwork()
+              !browserIsOnline()
             ) {
               break;
             }
-
 
             try {
               await syncCase(
@@ -223,26 +155,22 @@ export function AutoSyncManager() {
               error
             ) {
               console.warn(
-                "Automatic case sync paused:",
+                "Automatic sync paused:",
                 error,
               );
 
               /*
-               * اگر یک upload شکست خورد،
-               * بقیه Queue را روی همان اتصال
-               * خراب پشت سر هم ارسال نکن.
+               * اگر همین Case مشکل داشت،
+               * پشت سر هم request نفرست.
+               *
+               * ده ثانیه بعد دوباره Queue
+               * بررسی خواهد شد.
                */
               break;
             }
           }
 
-
-          /*
-           * بعد از عملیات وضعیت UI
-           * یک بار refresh شود.
-           */
           await refresh();
-
         } catch (
           error
         ) {
@@ -260,58 +188,42 @@ export function AutoSyncManager() {
       ],
     );
 
-
   useEffect(() => {
     /*
-     * هنگام باز شدن برنامه:
-     *
-     * Queue محلی بررسی می‌شود.
-     * اگر Queue خالی باشد هیچ درخواست
-     * Backend ارسال نمی‌شود.
+     * هنگام باز شدن برنامه.
      */
     void processQueue();
 
-
     /*
-     * fallback timer.
-     *
-     * event online معمولاً خیلی زودتر
-     * عملیات sync را اجرا می‌کند.
+     * هر 10 ثانیه.
      */
     const intervalId =
       window.setInterval(
         () => {
           void processQueue();
         },
-        FALLBACK_SYNC_INTERVAL_MS,
+        AUTO_SYNC_INTERVAL_MS,
       );
-
 
     /*
      * اینترنت برگشت:
-     * همان لحظه Queue بررسی شود.
+     * همان لحظه تلاش شود.
      */
     const handleOnline =
       () => {
         void processQueue();
       };
 
-
     /*
-     * کاربر برگشت داخل برنامه:
-     * Queue بررسی شود.
+     * برگشت کاربر به برنامه.
      */
     const handleFocus =
       () => {
         void processQueue();
       };
 
-
     /*
-     * برای PWA / موبایل:
-     *
-     * وقتی برنامه دوباره visible شد،
-     * Queue بررسی شود.
+     * PWA / mobile.
      */
     const handleVisibilityChange =
       () => {
@@ -323,6 +235,10 @@ export function AutoSyncManager() {
         }
       };
 
+    const handlePageShow =
+      () => {
+        void processQueue();
+      };
 
     window.addEventListener(
       "online",
@@ -334,11 +250,15 @@ export function AutoSyncManager() {
       handleFocus,
     );
 
+    window.addEventListener(
+      "pageshow",
+      handlePageShow,
+    );
+
     document.addEventListener(
       "visibilitychange",
       handleVisibilityChange,
     );
-
 
     return () => {
       window.clearInterval(
@@ -355,6 +275,11 @@ export function AutoSyncManager() {
         handleFocus,
       );
 
+      window.removeEventListener(
+        "pageshow",
+        handlePageShow,
+      );
+
       document.removeEventListener(
         "visibilitychange",
         handleVisibilityChange,
@@ -364,6 +289,6 @@ export function AutoSyncManager() {
     processQueue,
   ]);
 
-
   return null;
 }
+
