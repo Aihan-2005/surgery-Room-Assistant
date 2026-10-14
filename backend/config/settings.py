@@ -104,10 +104,20 @@ USE_TZ = True
 
 # ------------------------------------------------------- static & media
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"  # `collectstatic` target; Nginx serves it in production
+STATIC_ROOT = Path(os.environ.get("STATIC_ROOT") or BASE_DIR / "staticfiles")
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT") or BASE_DIR / "media")  # patient photos
+PG_DUMP_PATH = os.environ.get("PG_DUMP_PATH", "")  # optional path to matching PostgreSQL client
+
+# Compression keeps the original resolution and full colour sampling.
+PHOTO_JPEG_QUALITY = int(os.environ.get("PHOTO_JPEG_QUALITY", "90"))
+PHOTO_MAX_UPLOAD_BYTES = int(os.environ.get("PHOTO_MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+PHOTO_MAX_PIXELS = int(os.environ.get("PHOTO_MAX_PIXELS", "40000000"))
+if not 1 <= PHOTO_JPEG_QUALITY <= 95:
+    raise ImproperlyConfigured("PHOTO_JPEG_QUALITY must be between 1 and 95.")
+if PHOTO_MAX_UPLOAD_BYTES <= 0 or PHOTO_MAX_PIXELS <= 0:
+    raise ImproperlyConfigured("Photo upload and pixel limits must be positive.")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -129,13 +139,24 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
     # Registration limit is per IP. A hospital shares one public IP, so raise it
     # (REGISTER_RATE=30/hour) if many doctors will register at the same time.
-    "DEFAULT_THROTTLE_RATES": {"register": os.environ.get("REGISTER_RATE", "10/hour")},
+    "DEFAULT_THROTTLE_RATES": {
+        "register": os.environ.get("REGISTER_RATE", "10/hour"),
+        "recover": os.environ.get("RECOVER_RATE", "10/hour"),
+    },
     # Number of reverse proxies in front of Django (Nginx = 1). Without this, every
     # request would look like it comes from 127.0.0.1 and share ONE rate limit.
     "NUM_PROXIES": int(os.environ.get("NUM_PROXIES", "0")),
 }
 
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
+
+# Use a shared cache on a VPS with multiple workers, including for rate limits.
+CACHES = {
+    "default": {
+        "BACKEND": os.environ.get("CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"),
+        "LOCATION": os.environ.get("CACHE_LOCATION", "airway-assistant"),
+    }
+}
 
 # ------------------------------------------------------ HTTPS hardening
 if not DEBUG:

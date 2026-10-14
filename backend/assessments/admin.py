@@ -1,7 +1,14 @@
 from django.contrib import admin, messages
 from django.db.models import Count
+from django.http import FileResponse, Http404, HttpResponseForbidden
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils import timezone
+from django.views.decorators.http import require_POST
+from PIL import Image, UnidentifiedImageError
 
+from .backups import BackupError, create_full_backup
 from .models import Assessment, AssessmentPhoto, Device
 
 
@@ -52,7 +59,8 @@ class PhotoInline(admin.TabularInline):
     def preview(self, obj):
         if not obj.image:
             return "-"
-        return format_html('<a href="{0}" target="_blank"><img src="{0}" style="height:120px"></a>', obj.image.url)
+        url = reverse("admin:assessments_photo", args=[obj.id])
+        return format_html('<a href="{0}" target="_blank"><img src="{0}" style="height:120px"></a>', url)
 
 
 @admin.register(Assessment)
@@ -63,6 +71,44 @@ class AssessmentAdmin(admin.ModelAdmin):
     search_fields = ("full_name", "id")
     date_hierarchy = "created_at"
     inlines = [PhotoInline]
+
+    def get_urls(self):
+        return [
+            path("backup/", self.admin_site.admin_view(require_POST(self.full_backup_view)), name="assessments_full_backup"),
+            path("photo/<uuid:photo_id>/", self.admin_site.admin_view(self.photo_view), name="assessments_photo"),
+        ] + super().get_urls()
+
+    def full_backup_view(self, request):
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("Only a superuser can download a full backup.")
+        try:
+            archive = create_full_backup()
+        except BackupError as exc:
+            self.message_user(request, str(exc), messages.ERROR)
+            return redirect("admin:assessments_assessment_changelist")
+        except OSError:
+            self.message_user(request, "Backup failed while reading the database or photos. Check server storage.", messages.ERROR)
+            return redirect("admin:assessments_assessment_changelist")
+        filename = f"airway-full-backup-{timezone.now():%Y%m%dT%H%M%SZ}.zip"
+        response = FileResponse(archive, as_attachment=True, filename=filename, content_type="application/zip")
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    def photo_view(self, request, photo_id):
+        photo = get_object_or_404(AssessmentPhoto.objects.select_related("assessment"), pk=photo_id)
+        if not self.has_view_permission(request, photo.assessment):
+            raise Http404
+        try:
+            source = photo.image.open("rb")
+            with Image.open(source) as image:
+                content_type = Image.MIME.get(image.format, "application/octet-stream")
+            source.seek(0)
+        except (OSError, UnidentifiedImageError) as exc:
+            photo.image.close()
+            raise Http404("Photo file unavailable.") from exc
+        response = FileResponse(source, content_type=content_type)
+        response["Cache-Control"] = "private, no-store"
+        return response
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(_photos=Count("photos"))
