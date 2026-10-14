@@ -332,11 +332,13 @@ export function createLocalOperatorProfile(
     );
   }
 
-
-  
   const existing =
     getOperatorProfile();
 
+  /*
+   * اگر profile قبلاً وجود دارد،
+   * هیچ UUID جدیدی تولید نکن.
+   */
   if (existing) {
     return existing;
   }
@@ -386,6 +388,10 @@ export function createLocalOperatorProfile(
   return profile;
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Backend helpers                                                            */
+/* -------------------------------------------------------------------------- */
 
 async function readDeviceResponse(
   response:
@@ -595,6 +601,123 @@ function throwCommonDeviceError(
 }
 
 
+/* -------------------------------------------------------------------------- */
+/* Registration                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * همان installation را با همان UUID ثبت می‌کند.
+ *
+ * این تابع هیچ‌وقت UUID جدید تولید نمی‌کند.
+ *
+ * برای دو حالت استفاده می‌شود:
+ *
+ * 1. اولین registration واقعی
+ * 2. Backend/Database تازه شده و token قدیمی
+ *    Browser دیگر در Backend وجود ندارد.
+ */
+async function registerSameInstallation(
+  profile:
+    OperatorProfile,
+): Promise<OperatorProfile> {
+  const registration =
+    await requestRegistration(
+      profile.id,
+      profile.fullName,
+    );
+
+  /*
+   * UUID در Backend وجود دارد.
+   *
+   * مهم:
+   * UUID جدید نساز.
+   */
+  if (
+    registration.response.status ===
+    409
+  ) {
+    throw new OperatorDeviceError(
+      "این دستگاه قبلاً در سرور ثبت شده است اما اطلاعات بازیابی آن در این نصب موجود نیست.",
+
+      "DEVICE_RECOVERY_REQUIRED",
+
+      409,
+    );
+  }
+
+  if (
+    !registration.response.ok
+  ) {
+    throwCommonDeviceError(
+      registration.response,
+      registration.data,
+      "DEVICE_REGISTRATION_FAILED",
+      "ثبت دستگاه انجام نشد.",
+    );
+  }
+
+  const token =
+    registration.data.token;
+
+  if (!token) {
+    throw new OperatorDeviceError(
+      "Device token از سرور دریافت نشد.",
+
+      "DEVICE_TOKEN_MISSING",
+    );
+  }
+
+  if (
+    registration.data.device_id &&
+    !sameDeviceId(
+      registration.data.device_id,
+      profile.id,
+    )
+  ) {
+    throw new OperatorDeviceError(
+      "شناسه Device برگشتی با شناسه این نصب مطابقت ندارد.",
+
+      "DEVICE_ID_MISMATCH",
+    );
+  }
+
+  const now =
+    new Date()
+      .toISOString();
+
+  const registered:
+    OperatorProfile = {
+    ...profile,
+
+    /*
+     * profile.id عمداً تغییر نمی‌کند.
+     */
+    deviceToken:
+      token,
+
+    recoveryKey:
+      registration.data
+        .recovery_key,
+
+    registeredAt:
+      profile.registeredAt ??
+      now,
+
+    updatedAt:
+      now,
+  };
+
+  saveOperatorProfile(
+    registered,
+  );
+
+  return registered;
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Recovery key                                                               */
+/* -------------------------------------------------------------------------- */
 
 export async function ensureOperatorRecoveryKey():
   Promise<OperatorProfile> {
@@ -609,8 +732,6 @@ export async function ensureOperatorRecoveryKey():
     );
   }
 
-
-  
   if (
     profile.recoveryKey
   ) {
@@ -621,9 +742,9 @@ export async function ensureOperatorRecoveryKey():
     !profile.deviceToken
   ) {
     throw new OperatorDeviceError(
-      "اطلاعات بازیابی این نصب موجود نیست.",
+      "Device token موجود نیست.",
 
-      "DEVICE_RECOVERY_REQUIRED",
+      "DEVICE_TOKEN_REQUIRED",
 
       401,
     );
@@ -634,24 +755,48 @@ export async function ensureOperatorRecoveryKey():
       profile.deviceToken,
     );
 
+  /*
+   * سناریوی مهم:
+   *
+   * Browser هنوز token قدیمی دارد،
+   * ولی Backend/DB جدید آن token را نمی‌شناسد.
+   *
+   * در این حالت بدون تغییر UUID،
+   * همان Device UUID را یک بار register می‌کنیم.
+   */
+  if (
+    result.response.status ===
+    401
+  ) {
+    try {
+      return await registerSameInstallation(
+        profile,
+      );
+    } catch (
+      error
+    ) {
+      if (
+        error instanceof
+          OperatorDeviceError &&
+        error.status ===
+          409
+      ) {
+        throw new OperatorDeviceError(
+          "اتصال این نصب نیاز به بررسی دارد. شناسه دستگاه و اطلاعات بیمار حفظ شده‌اند.",
+
+          "DEVICE_RECOVERY_REQUIRED",
+
+          409,
+        );
+      }
+
+      throw error;
+    }
+  }
+
   if (
     !result.response.ok
   ) {
-
-    
-    if (
-      result.response.status ===
-      401
-    ) {
-      throw new OperatorDeviceError(
-        "اتصال این نصب نیاز به بررسی دارد. اطلاعات و شناسه دستگاه حفظ شده‌اند.",
-
-        "DEVICE_RECOVERY_REQUIRED",
-
-        401,
-      );
-    }
-
     throwCommonDeviceError(
       result.response,
       result.data,
@@ -704,7 +849,11 @@ export async function ensureOperatorRecoveryKey():
   return updated;
 }
 
- 
+
+/* -------------------------------------------------------------------------- */
+/* Device recovery                                                            */
+/* -------------------------------------------------------------------------- */
+
 export async function recoverOperatorDevice():
   Promise<OperatorProfile> {
   const profile =
@@ -739,7 +888,11 @@ export async function recoverOperatorDevice():
   if (
     !result.response.ok
   ) {
- 
+    /*
+     * Recovery ناموفق است.
+     *
+     * هیچ Device جدیدی نساز.
+     */
     if (
       result.response.status ===
       401
@@ -794,7 +947,11 @@ export async function recoverOperatorDevice():
     OperatorProfile = {
     ...profile,
 
-   
+    /*
+     * فقط token تعویض می‌شود.
+     *
+     * UUID و recoveryKey ثابت می‌مانند.
+     */
     deviceToken:
       token,
 
@@ -813,9 +970,18 @@ export async function recoverOperatorDevice():
   return recovered;
 }
 
- 
+
+/* -------------------------------------------------------------------------- */
+/* Public registration entry                                                  */
+/* -------------------------------------------------------------------------- */
+
 export async function ensureOperatorRegistered(
- 
+  /*
+   * برای compatibility با callerهای قدیمی
+   * نگه داشته شده است.
+   *
+   * force دیگر باعث ساخت UUID جدید نمی‌شود.
+   */
   _options?: {
     force?: boolean;
   },
@@ -830,121 +996,82 @@ export async function ensureOperatorRegistered(
       "OPERATOR_PROFILE_REQUIRED",
     );
   }
- 
+
+
+  /*
+   * Token داریم.
+   */
   if (
     profile.deviceToken
   ) {
+    /*
+     * Installation جدید:
+     * recoveryKey از registration ذخیره شده.
+     */
     if (
-      !profile.recoveryKey
+      profile.recoveryKey
     ) {
-      profile =
-        await ensureOperatorRecoveryKey();
+      return profile;
     }
+
+    /*
+     * Installation قدیمی:
+     *
+     * token دارد ولی recoveryKey ندارد.
+     */
+    profile =
+      await ensureOperatorRecoveryKey();
 
     return profile;
   }
 
- 
+
+  /*
+   * Token نداریم ولی recoveryKey داریم.
+   *
+   * همان Device را recover کن.
+   */
   if (
     profile.recoveryKey
   ) {
     return recoverOperatorDevice();
   }
- 
-  const registration =
-    await requestRegistration(
-      profile.id,
-      profile.fullName,
+
+
+  /*
+   * نه token داریم نه recoveryKey.
+   *
+   * همان UUID اولیه را register کن.
+   */
+  profile =
+    await registerSameInstallation(
+      profile,
     );
 
- 
+
+  /*
+   * Backend فعلی recovery_key را مستقیم
+   * همراه registration برمی‌گرداند.
+   *
+   * اگر Backend قدیمی‌تر بود و key را
+   * برنگرداند، اکنون با token معتبر
+   * recovery key را provision کن.
+   */
   if (
-    registration.response.status ===
-    409
+    !profile.recoveryKey
   ) {
-    throw new OperatorDeviceError(
-      "این نصب قبلاً ثبت شده است اما اطلاعات بازیابی آن روی دستگاه موجود نیست.",
-
-      "DEVICE_RECOVERY_REQUIRED",
-
-      409,
-    );
-  }
-
-  if (
-    !registration.response.ok
-  ) {
-    throwCommonDeviceError(
-      registration.response,
-      registration.data,
-      "DEVICE_REGISTRATION_FAILED",
-      "ثبت دستگاه انجام نشد.",
-    );
-  }
-
-  const token =
-    registration.data.token;
-
-  if (!token) {
-    throw new OperatorDeviceError(
-      "Device token از سرور دریافت نشد.",
-
-      "DEVICE_TOKEN_MISSING",
-    );
-  }
-
-  if (
-    registration.data.device_id &&
-    !sameDeviceId(
-      registration.data.device_id,
-      profile.id,
-    )
-  ) {
-    throw new OperatorDeviceError(
-      "شناسه Device برگشتی با شناسه این نصب مطابقت ندارد.",
-
-      "DEVICE_ID_MISMATCH",
-    );
-  }
-
-  const now =
-    new Date()
-      .toISOString();
-
-  let registered:
-    OperatorProfile = {
-    ...profile,
-
-   
-    deviceToken:
-      token,
-
-    recoveryKey:
-      registration.data
-        .recovery_key,
-
-    registeredAt:
-      now,
-
-    updatedAt:
-      now,
-  };
-
-  saveOperatorProfile(
-    registered,
-  );
-
- 
-  if (
-    !registered.recoveryKey
-  ) {
-    registered =
+    profile =
       await ensureOperatorRecoveryKey();
   }
 
-  return registered;
+
+  return profile;
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Clear                                                                      */
+/* -------------------------------------------------------------------------- */
 
 export function clearOperatorProfile() {
   if (
