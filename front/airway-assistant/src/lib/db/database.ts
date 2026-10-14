@@ -1,9 +1,14 @@
+
 import {
   openDB,
   unwrap,
   type DBSchema,
   type IDBPDatabase,
 } from "idb";
+
+import {
+  createUuidV4,
+} from "@/lib/utils/uuid";
 
 import {
   CONSENT_VERSION,
@@ -28,11 +33,13 @@ import {
   getOperatorProfile,
 } from "@/lib/profile/operator-profile";
 
+
 const DATABASE_NAME =
   "airway-assistant-db";
 
 const DATABASE_VERSION =
   3;
+
 
 interface AirwayAssistantDatabase
   extends DBSchema {
@@ -88,6 +95,7 @@ interface AirwayAssistantDatabase
   };
 }
 
+
 interface LegacyCase {
   id:
     string;
@@ -120,6 +128,7 @@ interface LegacyCase {
     string;
 }
 
+
 export interface CreateCaseInput {
   fullName:
     string;
@@ -131,11 +140,13 @@ export interface CreateCaseInput {
     string;
 }
 
+
 let databasePromise:
   | Promise<
       IDBPDatabase<AirwayAssistantDatabase>
     >
   | null = null;
+
 
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
@@ -209,6 +220,7 @@ function unknownClinical(
   };
 }
 
+
 function normalizeFullName(
   value:
     string,
@@ -220,6 +232,7 @@ function normalizeFullName(
     )
     .trim();
 }
+
 
 function createCaseCode(
   id:
@@ -236,6 +249,7 @@ function createCaseCode(
     )
     .toUpperCase()}`;
 }
+
 
 function validateNewCase(
   input:
@@ -353,6 +367,7 @@ function validateNewCase(
   };
 }
 
+
 /**
  * دیگر position مشخصی اجباری نیست.
  *
@@ -369,6 +384,7 @@ function minimumPhotosCaptured(
   );
 }
 
+
 function createAuditEntry(
   caseId:
     string,
@@ -381,7 +397,7 @@ function createAuditEntry(
 ): AuditEntry {
   return {
     id:
-      crypto.randomUUID(),
+      createUuidV4(),
 
     caseId,
 
@@ -394,6 +410,7 @@ function createAuditEntry(
         .toISOString(),
   };
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Database                                                                   */
@@ -725,6 +742,7 @@ function getDatabase() {
   return databasePromise;
 }
 
+
 /* -------------------------------------------------------------------------- */
 /* Cases                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -757,7 +775,7 @@ export async function createCase(
       .toISOString();
 
   const id =
-    crypto.randomUUID();
+    createUuidV4();
 
   const clinical:
     ClinicalAssessment = {
@@ -882,6 +900,7 @@ export async function createCase(
   return airwayCase;
 }
 
+
 export async function getCase(
   caseId:
     string,
@@ -894,6 +913,7 @@ export async function getCase(
     caseId,
   );
 }
+
 
 export async function getAllCases() {
   const database =
@@ -918,6 +938,7 @@ export async function getAllCases() {
   );
 }
 
+
 /* -------------------------------------------------------------------------- */
 /* Photos                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -936,6 +957,7 @@ export async function getPhotosByCase(
       caseId,
     );
 }
+
 
 export async function savePhoto(
   caseId:
@@ -1068,7 +1090,7 @@ export async function savePhoto(
   const photo:
     StoredPhoto = {
     id:
-      crypto.randomUUID(),
+      createUuidV4(),
 
     caseId,
 
@@ -1148,6 +1170,7 @@ export async function savePhoto(
 
   return photo;
 }
+
 
 export async function deletePhoto(
   photoId:
@@ -1262,6 +1285,7 @@ export async function deletePhoto(
 
   await transaction.done;
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Finalize Capture                                                           */
@@ -1412,6 +1436,7 @@ export async function finalizePreop(
   return airwayCase;
 }
 
+
 /* -------------------------------------------------------------------------- */
 /* Sync status                                                                */
 /* -------------------------------------------------------------------------- */
@@ -1481,6 +1506,7 @@ export async function updateCaseStatus(
   return airwayCase;
 }
 
+
 export async function getQueuedCases() {
   const database =
     await getDatabase();
@@ -1492,6 +1518,7 @@ export async function getQueuedCases() {
       "queued",
     );
 }
+
 
 /* -------------------------------------------------------------------------- */
 /* Audit                                                                      */

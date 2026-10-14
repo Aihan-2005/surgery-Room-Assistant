@@ -2,6 +2,10 @@ import type {
   OperatorProfile,
 } from "@/lib/domain/types";
 
+import {
+  createUuidV4,
+} from "@/lib/utils/uuid";
+
 
 const STORAGE_KEY =
   "airway-assistant:operator-profile:v2";
@@ -232,7 +236,7 @@ function migrateLegacyProfile():
         legacy.id.length >
           0
           ? legacy.id
-          : crypto.randomUUID(),
+          : createUuidV4(),
 
       fullName,
 
@@ -355,7 +359,7 @@ export function createLocalOperatorProfile(
   const profile:
     OperatorProfile = {
     id:
-      crypto.randomUUID(),
+      createUuidV4(),
 
     fullName:
       normalized,
