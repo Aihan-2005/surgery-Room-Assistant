@@ -14,6 +14,24 @@ const REQUEST_TIMEOUT_MS =
   10_000;
 
 
+interface RegistrationInput {
+  device_id?:
+    unknown;
+
+  doctor_name?:
+    unknown;
+}
+
+
+interface ErrorPayload {
+  code?:
+    string;
+
+  detail?:
+    string;
+}
+
+
 function getBackendBaseUrl():
   | string
   | null {
@@ -97,35 +115,83 @@ export async function POST(
           "BACKEND_NOT_CONFIGURED",
 
         detail:
-          "Backend API تنظیم نشده است.",
+          "BACKEND_API_URL تنظیم نشده یا معتبر نیست.",
       },
       {
-        status: 503,
+        status:
+          503,
       },
     );
   }
 
-  const token =
-    request.headers
-      .get(
-        "x-device-token",
-      )
-      ?.trim();
 
-  if (!token) {
+  let input:
+    RegistrationInput;
+
+  try {
+    input =
+      (await request.json()) as
+        RegistrationInput;
+  } catch {
     return NextResponse.json(
       {
         code:
-          "DEVICE_TOKEN_REQUIRED",
+          "INVALID_REQUEST",
 
         detail:
-          "Device token موجود نیست.",
+          "درخواست معتبر نیست.",
       },
       {
-        status: 401,
+        status:
+          400,
       },
     );
   }
+
+
+  if (
+    typeof input.device_id !==
+      "string" ||
+    !input.device_id
+      .trim()
+  ) {
+    return NextResponse.json(
+      {
+        code:
+          "DEVICE_ID_REQUIRED",
+
+        detail:
+          "device_id الزامی است.",
+      },
+      {
+        status:
+          400,
+      },
+    );
+  }
+
+
+  if (
+    typeof input.doctor_name !==
+      "string" ||
+    !input.doctor_name
+      .trim()
+  ) {
+    return NextResponse.json(
+      {
+        code:
+          "DOCTOR_NAME_REQUIRED",
+
+        detail:
+          "doctor_name الزامی است.",
+      },
+      {
+        status:
+          400,
+      },
+    );
+  }
+
 
   const controller =
     new AbortController();
@@ -138,10 +204,16 @@ export async function POST(
       REQUEST_TIMEOUT_MS,
     );
 
+
   try {
+    /*
+     * ثبت اولیه Device.
+     *
+     * این endpoint نباید token بخواهد.
+     */
     const response =
       await fetch(
-        `${backendUrl}/api/devices/recovery-key/`,
+        `${backendUrl}/api/devices/register/`,
         {
           method:
             "POST",
@@ -150,15 +222,20 @@ export async function POST(
             Accept:
               "application/json",
 
-            Authorization:
-              `Device ${token}`,
-
             "Content-Type":
               "application/json",
           },
 
           body:
-            JSON.stringify({}),
+            JSON.stringify({
+              device_id:
+                input.device_id
+                  .trim(),
+
+              doctor_name:
+                input.doctor_name
+                  .trim(),
+            }),
 
           cache:
             "no-store",
@@ -168,11 +245,25 @@ export async function POST(
         },
       );
 
+
     const payload =
       await readPayload(
         response,
       );
 
+
+    /*
+     * پاسخ Backend را بدون دستکاری
+     * به Client برمی‌گردانیم.
+     *
+     * روی registration موفق Backend:
+     *
+     * {
+     *   device_id,
+     *   token,
+     *   recovery_key
+     * }
+     */
     return NextResponse.json(
       payload,
       {
@@ -189,20 +280,29 @@ export async function POST(
     error
   ) {
     console.error(
-      "Device recovery-key proxy failed:",
+      "Device registration proxy failed:",
       error,
     );
 
-    return NextResponse.json(
-      {
-        code:
-          "BACKEND_UNREACHABLE",
+    const payload:
+      ErrorPayload = {
+      code:
+        "BACKEND_UNREACHABLE",
 
-        detail:
-          "ارتباط با Backend برقرار نشد.",
-      },
+      detail:
+        "ارتباط با Backend برقرار نشد.",
+    };
+
+    return NextResponse.json(
+      payload,
       {
-        status: 502,
+        status:
+          502,
+
+        headers: {
+          "Cache-Control":
+            "no-store",
+        },
       },
     );
   } finally {
@@ -211,4 +311,4 @@ export async function POST(
     );
   }
 }
-
+ 
