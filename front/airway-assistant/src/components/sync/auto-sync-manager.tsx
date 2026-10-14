@@ -22,6 +22,7 @@ import {
 } from "@/components/connectivity/connectivity-provider";
 
 import {
+  ensureWebPushSubscription,
   registerUploadReminderSync,
 } from "@/lib/pwa/upload-reminder";
 
@@ -194,6 +195,13 @@ export function AutoSyncManager() {
             }
           }
 
+
+          /*
+           * If notification permission was granted,
+           * register/rebind the PushSubscription
+           * after the Device token is available.
+           */
+          await ensureWebPushSubscription();
 
           await refresh();
         } catch (

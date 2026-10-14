@@ -25,50 +25,38 @@ import {
   ServiceWorkerRegister,
 } from "@/components/pwa/service-worker-register";
 
+import {
+  OfflineNavigation,
+} from "@/components/pwa/offline-navigation";
 
 export const metadata: Metadata = {
   title: {
-    default:
-      "Airway Imaging Assistant",
-
-    template:
-      "%s | Airway Imaging Assistant",
+    default: "Airway Imaging Assistant",
+    template: "%s | Airway Imaging Assistant",
   },
 
   description:
     "Standardized mobile airway image capture and case collection",
 };
 
-
 export const viewport: Viewport = {
-  width:
-    "device-width",
-
+  width: "device-width",
   initialScale: 1,
-
   maximumScale: 1,
-
-  viewportFit:
-    "cover",
-
-  themeColor:
-    "#0369a1",
+  viewportFit: "cover",
+  themeColor: "#0369a1",
 };
-
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children:
-    React.ReactNode;
+  children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="fa"
-      dir="rtl"
-    >
+    <html lang="fa" dir="rtl">
       <body>
         <ServiceWorkerRegister />
+        <OfflineNavigation />
 
         <ConnectivityProvider>
           <OperatorGate>

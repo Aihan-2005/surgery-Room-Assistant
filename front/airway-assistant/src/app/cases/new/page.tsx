@@ -413,8 +413,8 @@ export default function NewCasePage() {
           },
         });
 
-      router.push(
-        `/cases/${airwayCase.id}/capture`,
+      window.location.assign(
+        `/capture?caseId=${encodeURIComponent(airwayCase.id)}`,
       );
     } catch (
       caughtError
