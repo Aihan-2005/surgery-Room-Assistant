@@ -11,26 +11,40 @@ import {
   checkConnectivity,
 } from "@/lib/network/connectivity";
 
+import {
+  registerUploadReminderSync,
+} from "@/lib/pwa/upload-reminder";
+
+
 export type FinalizeAndSyncState =
   | "synced"
   | "queued"
   | "failed";
+
 
 export interface FinalizeAndSyncResult {
   state:
     FinalizeAndSyncState;
 }
 
+
+async function queuedResult():
+  Promise<FinalizeAndSyncResult> {
+ 
+  await registerUploadReminderSync();
+
+  return {
+    state:
+      "queued",
+  };
+}
+
+
 export async function finalizeAndSyncCase(
   caseId:
     string,
 ): Promise<FinalizeAndSyncResult> {
-  /*
-   * اول اطلاعات به‌شکل durable روی IndexedDB
-   * نهایی و queued می‌شوند.
-   *
-   * این مرحله حتی بدون اینترنت کار می‌کند.
-   */
+ 
   const finalized =
     await finalizePreop(
       caseId,
@@ -46,41 +60,28 @@ export async function finalizeAndSyncCase(
     };
   }
 
-  /*
-   * اگر Browser صریحاً offline است،
-   * هیچ request شبکه‌ای نزن.
-   */
+
+ 
   if (
     typeof navigator ===
       "undefined" ||
     navigator.onLine ===
       false
   ) {
-    return {
-      state:
-        "queued",
-    };
+    return queuedResult();
   }
 
-  /*
-   * وضعیت واقعی Backend + DB.
-   */
+ 
   const connectivity =
     await checkConnectivity();
 
   if (
     !connectivity.canUpload
   ) {
-    return {
-      state:
-        "queued",
-    };
+    return queuedResult();
   }
 
-  /*
-   * آنلاین:
-   * همان لحظه ارسال شود.
-   */
+ 
   try {
     await syncCase(
       caseId,
@@ -98,10 +99,7 @@ export async function finalizeAndSyncCase(
       error,
     );
 
-    /*
-     * syncCase خودش وضعیت queued/failed
-     * را بر اساس نوع خطا تنظیم کرده است.
-     */
+  
     const latest =
       await getCase(
         caseId,
@@ -117,10 +115,7 @@ export async function finalizeAndSyncCase(
       };
     }
 
-    return {
-      state:
-        "queued",
-    };
+ 
+    return queuedResult();
   }
 }
-

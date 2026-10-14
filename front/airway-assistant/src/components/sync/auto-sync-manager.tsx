@@ -21,8 +21,14 @@ import {
   useConnectivity,
 } from "@/components/connectivity/connectivity-provider";
 
+import {
+  registerUploadReminderSync,
+} from "@/lib/pwa/upload-reminder";
+
+
 const AUTO_SYNC_INTERVAL_MS =
   10_000;
+
 
 function browserIsOnline() {
   if (
@@ -38,6 +44,7 @@ function browserIsOnline() {
   );
 }
 
+
 export function AutoSyncManager() {
   const {
     refresh,
@@ -46,6 +53,7 @@ export function AutoSyncManager() {
 
   const runningRef =
     useRef(false);
+
 
   const processQueue =
     useCallback(
@@ -56,19 +64,13 @@ export function AutoSyncManager() {
           return;
         }
 
-        if (
-          !browserIsOnline()
-        ) {
-          return;
-        }
-
         runningRef.current =
           true;
 
         try {
           /*
-           * اگر برنامه در وسط sync بسته شده بود،
-           * Caseهای syncing قدیمی دوباره queued شوند.
+           * Caseهایی که برنامه وسط sync
+           * بسته شده بود دوباره queued شوند.
            */
           const allCases =
             await getAllCases();
@@ -91,10 +93,7 @@ export function AutoSyncManager() {
             }
           }
 
-          /*
-           * فقط Caseهای queued برای
-           * AutoSync انتخاب می‌شوند.
-           */
+
           const queuedCases =
             (
               await getQueuedCases()
@@ -111,6 +110,10 @@ export function AutoSyncManager() {
                 ).getTime(),
             );
 
+
+          /*
+           * Queue خالی است.
+           */
           if (
             queuedCases.length ===
             0
@@ -118,15 +121,29 @@ export function AutoSyncManager() {
             return;
           }
 
+
+          /*
+           * حتی اگر Offline باشیم،
+           * Background Sync reminder
+           * ثبت شود.
+           */
+          await registerUploadReminderSync();
+
+
+          /*
+           * هنوز اینترنت نداریم.
+           *
+           * هیچ request ارسال نشود.
+           */
           if (
             !browserIsOnline()
           ) {
             return;
           }
 
+
           /*
-           * وضعیت ارسال را بررسی کن و
-           * همزمان UI را هم refresh کن.
+           * Backend + DB check.
            */
           const connectivity =
             await refresh();
@@ -137,6 +154,10 @@ export function AutoSyncManager() {
             return;
           }
 
+
+          /*
+           * Queue یکی‌یکی ارسال شود.
+           */
           for (
             const airwayCase of
             queuedCases
@@ -160,15 +181,19 @@ export function AutoSyncManager() {
               );
 
               /*
-               * اگر همین Case مشکل داشت،
-               * پشت سر هم request نفرست.
-               *
-               * ده ثانیه بعد دوباره Queue
-               * بررسی خواهد شد.
+               * اگر ارسال شکست خورد،
+               * reminder همچنان ثبت باشد.
+               */
+              await registerUploadReminderSync();
+
+              /*
+               * روی یک اتصال خراب پشت‌سرهم
+               * تمام Queue را ارسال نکن.
                */
               break;
             }
           }
+
 
           await refresh();
         } catch (
@@ -188,11 +213,13 @@ export function AutoSyncManager() {
       ],
     );
 
+
   useEffect(() => {
     /*
-     * هنگام باز شدن برنامه.
+     * هنگام بازشدن برنامه.
      */
     void processQueue();
+
 
     /*
      * هر 10 ثانیه.
@@ -205,25 +232,27 @@ export function AutoSyncManager() {
         AUTO_SYNC_INTERVAL_MS,
       );
 
+
     /*
-     * اینترنت برگشت:
-     * همان لحظه تلاش شود.
+     * لحظه برگشت اینترنت.
      */
     const handleOnline =
       () => {
         void processQueue();
       };
 
+
     /*
-     * برگشت کاربر به برنامه.
+     * برگشت focus.
      */
     const handleFocus =
       () => {
         void processQueue();
       };
 
+
     /*
-     * PWA / mobile.
+     * PWA دوباره visible شد.
      */
     const handleVisibilityChange =
       () => {
@@ -235,10 +264,12 @@ export function AutoSyncManager() {
         }
       };
 
+
     const handlePageShow =
       () => {
         void processQueue();
       };
+
 
     window.addEventListener(
       "online",
@@ -259,6 +290,7 @@ export function AutoSyncManager() {
       "visibilitychange",
       handleVisibilityChange,
     );
+
 
     return () => {
       window.clearInterval(
@@ -289,6 +321,6 @@ export function AutoSyncManager() {
     processQueue,
   ]);
 
+
   return null;
 }
-

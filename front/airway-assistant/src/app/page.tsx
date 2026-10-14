@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 
 import {
+  SyncReminderPermission,
+} from "@/components/pwa/sync-reminder-permission";
+
+import {
   NetworkPill,
 } from "@/components/app-shell/network-pill";
 
@@ -28,11 +32,14 @@ import type {
   AirwayCase,
 } from "@/lib/domain/types";
 
+
 function getStatusLabel(
   status:
     AirwayCase["syncStatus"],
 ) {
-  switch (status) {
+  switch (
+    status
+  ) {
     case "draft":
       return "پیش‌نویس";
 
@@ -50,6 +57,7 @@ function getStatusLabel(
   }
 }
 
+
 function getPatientName(
   airwayCase:
     AirwayCase,
@@ -60,16 +68,15 @@ function getPatientName(
       .fullName
       ?.trim();
 
-  if (fullName) {
+  if (
+    fullName
+  ) {
     return fullName;
   }
 
-  /*
-   * برای Caseهای قدیمی که fullName
-   * نداشته‌اند، Case ID نمایش داده نشود.
-   */
   return "نام بیمار ثبت نشده";
 }
+
 
 export default function HomePage() {
   const [
@@ -85,6 +92,7 @@ export default function HomePage() {
     setLoading,
   ] =
     useState(true);
+
 
   const loadCases =
     useCallback(
@@ -112,6 +120,7 @@ export default function HomePage() {
       [],
     );
 
+
   useEffect(() => {
     void loadCases();
 
@@ -134,6 +143,7 @@ export default function HomePage() {
   }, [
     loadCases,
   ]);
+
 
   return (
     <div
@@ -177,6 +187,7 @@ export default function HomePage() {
 
         <NetworkPill />
       </header>
+
 
       {/* New assessment */}
 
@@ -258,6 +269,7 @@ export default function HomePage() {
           />
         </Link>
       </section>
+
 
       {/* Features */}
 
@@ -351,6 +363,12 @@ export default function HomePage() {
         </div>
       </section>
 
+
+      {/* Notification permission */}
+
+      <SyncReminderPermission />
+
+
       {/* Recent assessments */}
 
       <section
@@ -385,6 +403,7 @@ export default function HomePage() {
           </Link>
         </div>
 
+
         {loading && (
           <div
             className="
@@ -402,6 +421,7 @@ export default function HomePage() {
             در حال بارگذاری...
           </div>
         )}
+
 
         {!loading &&
           cases.length ===
@@ -443,6 +463,7 @@ export default function HomePage() {
               </p>
             </div>
           )}
+
 
         {!loading &&
           cases.length >
@@ -491,7 +512,6 @@ export default function HomePage() {
                             min-w-0
                           "
                         >
-                          {/* نام بیمار به‌جای Case ID */}
                           <p
                             className="
                               truncate
