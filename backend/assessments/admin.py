@@ -1,129 +1,623 @@
-from django.contrib import admin, messages
-from django.db.models import Count
-from django.http import FileResponse, Http404, HttpResponseForbidden
-from django.shortcuts import get_object_or_404, redirect
-from django.urls import path, reverse
-from django.utils.html import format_html
-from django.utils import timezone
-from django.views.decorators.http import require_POST
-from PIL import Image, UnidentifiedImageError
+from urllib.parse import urlparse
 
-from .backups import BackupError, create_full_backup
-from .models import Assessment, AssessmentPhoto, Device
+from django.contrib import (
+    admin,
+    messages,
+)
+from django.db.models import (
+    Count,
+    Q,
+)
+from django.http import (
+    FileResponse,
+    Http404,
+    HttpResponseForbidden,
+)
+from django.shortcuts import (
+    get_object_or_404,
+    redirect,
+)
+from django.urls import (
+    path,
+    reverse,
+)
+from django.utils import timezone
+from django.utils.html import (
+    format_html,
+)
+from django.views.decorators.http import (
+    require_POST,
+)
+
+from PIL import (
+    Image,
+    UnidentifiedImageError,
+)
+
+from .backups import (
+    BackupError,
+    create_full_backup,
+)
+
+from .models import (
+    Assessment,
+    AssessmentPhoto,
+    Device,
+    PushSubscription,
+)
 
 
 @admin.register(Device)
-class DeviceAdmin(admin.ModelAdmin):
-    list_display = ("doctor_name", "short_id", "is_active", "case_count", "created_at")
-    list_filter = ("is_active",)
-    search_fields = ("doctor_name", "id")
-    readonly_fields = ("id", "doctor_name", "token_hash", "created_at")
-    actions = ["disable_devices", "enable_devices"]
+class DeviceAdmin(
+    admin.ModelAdmin
+):
+    list_display = (
+        "doctor_name",
+        "short_id",
+        "is_active",
+        "case_count",
+        "push_count",
+        "created_at",
+    )
 
-    def get_queryset(self, request):
-        return super().get_queryset(request).annotate(_cases=Count("assessments"))
+    list_filter = (
+        "is_active",
+    )
 
-    @admin.display(description="Device")
-    def short_id(self, obj):
-        return str(obj.id)[:8]
+    search_fields = (
+        "doctor_name",
+        "id",
+    )
 
-    @admin.display(description="Cases", ordering="_cases")
-    def case_count(self, obj):
+    readonly_fields = (
+        "id",
+        "doctor_name",
+        "token_hash",
+        "recovery_key_hash",
+        "created_at",
+    )
+
+    actions = [
+        "disable_devices",
+        "enable_devices",
+    ]
+
+    def get_queryset(
+        self,
+        request,
+    ):
+        return (
+            super()
+            .get_queryset(
+                request
+            )
+            .annotate(
+                _cases=Count(
+                    "assessments",
+                    distinct=True,
+                ),
+
+                _push=Count(
+                    "push_subscriptions",
+                    filter=Q(
+                        push_subscriptions__is_active=True
+                    ),
+                    distinct=True,
+                ),
+            )
+        )
+
+    @admin.display(
+        description="Device"
+    )
+    def short_id(
+        self,
+        obj,
+    ):
+        return str(
+            obj.id
+        )[:8]
+
+    @admin.display(
+        description="Cases",
+        ordering="_cases",
+    )
+    def case_count(
+        self,
+        obj,
+    ):
         return obj._cases
 
-    def has_add_permission(self, request):
-        return False  # devices register themselves through the API
+    @admin.display(
+        description="Active Push",
+        ordering="_push",
+    )
+    def push_count(
+        self,
+        obj,
+    ):
+        return obj._push
 
-    @admin.action(description="Disable selected devices (block a lost phone)")
-    def disable_devices(self, request, queryset):
-        n = queryset.update(is_active=False)
-        self.message_user(request, f"{n} device(s) disabled.", messages.SUCCESS)
-
-    @admin.action(description="Enable selected devices")
-    def enable_devices(self, request, queryset):
-        n = queryset.update(is_active=True)
-        self.message_user(request, f"{n} device(s) enabled.", messages.SUCCESS)
-
-
-class PhotoInline(admin.TabularInline):
-    model = AssessmentPhoto
-    extra = 0
-    can_delete = False
-    fields = ("preview", "position")
-    readonly_fields = ("preview", "position")
-
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(
+        self,
+        request,
+    ):
         return False
 
-    @admin.display(description="Photo")
-    def preview(self, obj):
+    @admin.action(
+        description=
+            "Disable selected devices (block a lost phone)"
+    )
+    def disable_devices(
+        self,
+        request,
+        queryset,
+    ):
+        count = queryset.update(
+            is_active=False
+        )
+
+        self.message_user(
+            request,
+            f"{count} device(s) disabled.",
+            messages.SUCCESS,
+        )
+
+    @admin.action(
+        description=
+            "Enable selected devices"
+    )
+    def enable_devices(
+        self,
+        request,
+        queryset,
+    ):
+        count = queryset.update(
+            is_active=True
+        )
+
+        self.message_user(
+            request,
+            f"{count} device(s) enabled.",
+            messages.SUCCESS,
+        )
+
+
+@admin.register(
+    PushSubscription
+)
+class PushSubscriptionAdmin(
+    admin.ModelAdmin
+):
+    list_display = (
+        "short_id",
+        "device",
+        "endpoint_host",
+        "is_active",
+        "failure_count",
+        "last_success_at",
+        "last_failure_at",
+        "updated_at",
+    )
+
+    list_filter = (
+        "is_active",
+        "created_at",
+        "updated_at",
+    )
+
+    search_fields = (
+        "device__doctor_name",
+        "device__id",
+        "endpoint",
+    )
+
+    fields = (
+        "id",
+        "device",
+        "endpoint",
+        "is_active",
+        "user_agent",
+        "expiration_time_ms",
+        "failure_count",
+        "last_success_at",
+        "last_failure_at",
+        "created_at",
+        "updated_at",
+    )
+
+    readonly_fields = (
+        "id",
+        "device",
+        "endpoint",
+        "user_agent",
+        "expiration_time_ms",
+        "failure_count",
+        "last_success_at",
+        "last_failure_at",
+        "created_at",
+        "updated_at",
+    )
+
+    actions = [
+        "disable_subscriptions",
+        "enable_subscriptions",
+    ]
+
+    def has_add_permission(
+        self,
+        request,
+    ):
+        return False
+
+    @admin.display(
+        description="Subscription"
+    )
+    def short_id(
+        self,
+        obj,
+    ):
+        return str(
+            obj.id
+        )[:8]
+
+    @admin.display(
+        description="Push service"
+    )
+    def endpoint_host(
+        self,
+        obj,
+    ):
+        try:
+            return (
+                urlparse(
+                    obj.endpoint
+                ).netloc
+                or "-"
+            )
+        except ValueError:
+            return "-"
+
+    @admin.action(
+        description=
+            "Disable selected push subscriptions"
+    )
+    def disable_subscriptions(
+        self,
+        request,
+        queryset,
+    ):
+        count = queryset.update(
+            is_active=False
+        )
+
+        self.message_user(
+            request,
+            (
+                f"{count} push "
+                "subscription(s) disabled."
+            ),
+            messages.SUCCESS,
+        )
+
+    @admin.action(
+        description=
+            "Enable selected push subscriptions"
+    )
+    def enable_subscriptions(
+        self,
+        request,
+        queryset,
+    ):
+        count = queryset.update(
+            is_active=True
+        )
+
+        self.message_user(
+            request,
+            (
+                f"{count} push "
+                "subscription(s) enabled."
+            ),
+            messages.SUCCESS,
+        )
+
+
+class PhotoInline(
+    admin.TabularInline
+):
+    model = AssessmentPhoto
+
+    extra = 0
+
+    can_delete = False
+
+    fields = (
+        "preview",
+        "position",
+    )
+
+    readonly_fields = (
+        "preview",
+        "position",
+    )
+
+    def has_add_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
+
+    @admin.display(
+        description="Photo"
+    )
+    def preview(
+        self,
+        obj,
+    ):
         if not obj.image:
             return "-"
-        url = reverse("admin:assessments_photo", args=[obj.id])
-        return format_html('<a href="{0}" target="_blank"><img src="{0}" style="height:120px"></a>', url)
+
+        url = reverse(
+            "admin:assessments_photo",
+            args=[
+                obj.id
+            ],
+        )
+
+        return format_html(
+            (
+                '<a href="{0}" target="_blank">'
+                '<img src="{0}" style="height:120px">'
+                "</a>"
+            ),
+            url,
+        )
 
 
-@admin.register(Assessment)
-class AssessmentAdmin(admin.ModelAdmin):
-    list_display = ("short_id", "full_name", "device", "age", "sex", "neck_movement",
-                    "is_complete", "photos", "created_at", "received_at")
-    list_filter = ("is_complete", "neck_movement", "previous_difficult_intubation", "sex", "device")
-    search_fields = ("full_name", "id")
-    date_hierarchy = "created_at"
-    inlines = [PhotoInline]
+@admin.register(
+    Assessment
+)
+class AssessmentAdmin(
+    admin.ModelAdmin
+):
+    list_display = (
+        "short_id",
+        "full_name",
+        "device",
+        "age",
+        "sex",
+        "neck_movement",
+        "is_complete",
+        "photos",
+        "created_at",
+        "received_at",
+    )
 
-    def get_urls(self):
+    list_filter = (
+        "is_complete",
+        "neck_movement",
+        "previous_difficult_intubation",
+        "sex",
+        "device",
+    )
+
+    search_fields = (
+        "full_name",
+        "id",
+    )
+
+    date_hierarchy = (
+        "created_at"
+    )
+
+    inlines = [
+        PhotoInline
+    ]
+
+    def get_urls(
+        self,
+    ):
         return [
-            path("backup/", self.admin_site.admin_view(require_POST(self.full_backup_view)), name="assessments_full_backup"),
-            path("photo/<uuid:photo_id>/", self.admin_site.admin_view(self.photo_view), name="assessments_photo"),
+            path(
+                "backup/",
+                self.admin_site.admin_view(
+                    require_POST(
+                        self.full_backup_view
+                    )
+                ),
+                name=
+                    "assessments_full_backup",
+            ),
+
+            path(
+                "photo/<uuid:photo_id>/",
+                self.admin_site.admin_view(
+                    self.photo_view
+                ),
+                name=
+                    "assessments_photo",
+            ),
         ] + super().get_urls()
 
-    def full_backup_view(self, request):
+    def full_backup_view(
+        self,
+        request,
+    ):
         if not request.user.is_superuser:
-            return HttpResponseForbidden("Only a superuser can download a full backup.")
+            return HttpResponseForbidden(
+                (
+                    "Only a superuser can "
+                    "download a full backup."
+                )
+            )
+
         try:
-            archive = create_full_backup()
+            archive = (
+                create_full_backup()
+            )
+
         except BackupError as exc:
-            self.message_user(request, str(exc), messages.ERROR)
-            return redirect("admin:assessments_assessment_changelist")
+            self.message_user(
+                request,
+                str(
+                    exc
+                ),
+                messages.ERROR,
+            )
+
+            return redirect(
+                "admin:assessments_assessment_changelist"
+            )
+
         except OSError:
-            self.message_user(request, "Backup failed while reading the database or photos. Check server storage.", messages.ERROR)
-            return redirect("admin:assessments_assessment_changelist")
-        filename = f"airway-full-backup-{timezone.now():%Y%m%dT%H%M%SZ}.zip"
-        response = FileResponse(archive, as_attachment=True, filename=filename, content_type="application/zip")
-        response["Cache-Control"] = "private, no-store"
+            self.message_user(
+                request,
+                (
+                    "Backup failed while reading "
+                    "the database or photos. "
+                    "Check server storage."
+                ),
+                messages.ERROR,
+            )
+
+            return redirect(
+                "admin:assessments_assessment_changelist"
+            )
+
+        filename = (
+            "airway-full-backup-"
+            f"{timezone.now():%Y%m%dT%H%M%SZ}"
+            ".zip"
+        )
+
+        response = FileResponse(
+            archive,
+            as_attachment=True,
+            filename=filename,
+            content_type=
+                "application/zip",
+        )
+
+        response[
+            "Cache-Control"
+        ] = "private, no-store"
+
         return response
 
-    def photo_view(self, request, photo_id):
-        photo = get_object_or_404(AssessmentPhoto.objects.select_related("assessment"), pk=photo_id)
-        if not self.has_view_permission(request, photo.assessment):
+    def photo_view(
+        self,
+        request,
+        photo_id,
+    ):
+        photo = (
+            get_object_or_404(
+                AssessmentPhoto.objects
+                .select_related(
+                    "assessment"
+                ),
+                pk=photo_id,
+            )
+        )
+
+        if not self.has_view_permission(
+            request,
+            photo.assessment,
+        ):
             raise Http404
+
         try:
-            source = photo.image.open("rb")
-            with Image.open(source) as image:
-                content_type = Image.MIME.get(image.format, "application/octet-stream")
-            source.seek(0)
-        except (OSError, UnidentifiedImageError) as exc:
+            source = photo.image.open(
+                "rb"
+            )
+
+            with Image.open(
+                source
+            ) as image:
+                content_type = (
+                    Image.MIME.get(
+                        image.format,
+                        "application/octet-stream",
+                    )
+                )
+
+            source.seek(
+                0
+            )
+
+        except (
+            OSError,
+            UnidentifiedImageError,
+        ) as exc:
             photo.image.close()
-            raise Http404("Photo file unavailable.") from exc
-        response = FileResponse(source, content_type=content_type)
-        response["Cache-Control"] = "private, no-store"
+
+            raise Http404(
+                "Photo file unavailable."
+            ) from exc
+
+        response = FileResponse(
+            source,
+            content_type=
+                content_type,
+        )
+
+        response[
+            "Cache-Control"
+        ] = "private, no-store"
+
         return response
 
-    def get_queryset(self, request):
-        return super().get_queryset(request).annotate(_photos=Count("photos"))
+    def get_queryset(
+        self,
+        request,
+    ):
+        return (
+            super()
+            .get_queryset(
+                request
+            )
+            .annotate(
+                _photos=Count(
+                    "photos"
+                )
+            )
+        )
 
-    def get_readonly_fields(self, request, obj=None):
-        # collected data should not be edited by accident
-        return [f.name for f in self.model._meta.fields]
+    def get_readonly_fields(
+        self,
+        request,
+        obj=None,
+    ):
+        return [
+            field.name
+            for field
+            in self.model._meta.fields
+        ]
 
-    def has_add_permission(self, request):
+    def has_add_permission(
+        self,
+        request,
+    ):
         return False
 
-    @admin.display(description="Case")
-    def short_id(self, obj):
-        return str(obj.id)[:8]
+    @admin.display(
+        description="Case"
+    )
+    def short_id(
+        self,
+        obj,
+    ):
+        return str(
+            obj.id
+        )[:8]
 
-    @admin.display(description="Photos", ordering="_photos")
-    def photos(self, obj):
+    @admin.display(
+        description="Photos",
+        ordering="_photos",
+    )
+    def photos(
+        self,
+        obj,
+    ):
         return obj._photos

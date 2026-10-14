@@ -1,14 +1,66 @@
 from django.urls import path
+
 from . import views
 
+
 urlpatterns = [
-    path("devices/register/", views.RegisterView.as_view()),
-    path("devices/recover/", views.DeviceRecoverView.as_view()),
-    path("devices/recovery-key/", views.DeviceRecoveryKeyView.as_view()),
-    path("assessments/", views.AssessmentListView.as_view()),
-    path("assessments/export/", views.AssessmentExportView.as_view()),
-    path("assessments/<uuid:pk>/", views.AssessmentDetailView.as_view()),
-    path("assessments/<uuid:pk>/photos/<uuid:photo_id>/", views.PhotoUploadView.as_view()),
-    path("assessments/<uuid:pk>/complete/", views.CompleteView.as_view()),
-    path("health/", views.HealthView.as_view()),
+    path(
+        "devices/register/",
+        views.RegisterView.as_view(),
+    ),
+
+    path(
+        "devices/recover/",
+        views.DeviceRecoverView.as_view(),
+    ),
+
+    path(
+        "devices/recovery-key/",
+        views.DeviceRecoveryKeyView.as_view(),
+    ),
+
+    path(
+        "push/config/",
+        views.PushConfigView.as_view(),
+    ),
+
+    path(
+        "push/subscriptions/",
+        views.PushSubscriptionView.as_view(),
+    ),
+
+    path(
+        "push/test/",
+        views.PushTestView.as_view(),
+    ),
+
+    path(
+        "assessments/",
+        views.AssessmentListView.as_view(),
+    ),
+
+    path(
+        "assessments/export/",
+        views.AssessmentExportView.as_view(),
+    ),
+
+    path(
+        "assessments/<uuid:pk>/",
+        views.AssessmentDetailView.as_view(),
+    ),
+
+    path(
+        "assessments/<uuid:pk>/photos/<uuid:photo_id>/",
+        views.PhotoUploadView.as_view(),
+    ),
+
+    path(
+        "assessments/<uuid:pk>/complete/",
+        views.CompleteView.as_view(),
+    ),
+
+    path(
+        "health/",
+        views.HealthView.as_view(),
+    ),
 ]
