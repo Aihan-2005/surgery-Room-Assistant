@@ -2,10 +2,7 @@ export type OpenString<T extends string> =
   | T
   | (string & {});
 
-/* -------------------------------------------------------------------------- */
-/* Sync / Study                                                               */
-/* -------------------------------------------------------------------------- */
-
+ 
 export type SyncStatus =
   | "draft"
   | "queued"
@@ -20,10 +17,7 @@ export type StudyStatus =
   | "capture_completed"
   | "completed"
   | "excluded";
-
-/* -------------------------------------------------------------------------- */
-/* Common                                                                     */
-/* -------------------------------------------------------------------------- */
+ 
 
 export type YesNoUnknown =
   | "yes"
@@ -44,16 +38,22 @@ export type HeadRotationStatus =
   | "complete"
   | "incomplete";
 
-/* -------------------------------------------------------------------------- */
-/* Operator / Device                                                          */
-/* -------------------------------------------------------------------------- */
 
+  
 export interface OperatorProfile {
+
+  
   id: string;
 
   fullName: string;
 
+
+  
   deviceToken?: string;
+
+
+  
+  recoveryKey?: string;
 
   registeredAt?: string;
 
@@ -64,9 +64,7 @@ export interface OperatorProfile {
   updatedAt: string;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Legacy airway classifications                                              */
-/* -------------------------------------------------------------------------- */
+
 
 export type MallampatiClass =
   | 1
@@ -81,10 +79,8 @@ export type UpperLipBiteClass =
   | 3
   | "unknown";
 
-/* -------------------------------------------------------------------------- */
-/* Capture                                                                    */
-/* -------------------------------------------------------------------------- */
 
+  
 export type CaptureKind =
   | "front_neutral"
   | "mallampati"
@@ -101,10 +97,8 @@ export type CaptureSource =
   | "legacy"
   | "unknown";
 
-/* -------------------------------------------------------------------------- */
-/* Image Quality                                                              */
-/* -------------------------------------------------------------------------- */
 
+  
 export type ImageQualityFlag =
   OpenString<
     | "too_dark"
@@ -178,51 +172,48 @@ export interface ImageQualityMetrics {
 
   checkedAt?: string;
 
-  [key: string]: unknown;
+  [key: string]:
+    unknown;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Prepared Image                                                             */
-/* -------------------------------------------------------------------------- */
+
 
 export interface PreparedImage {
   file: File;
 
-  source: CaptureSource;
+  source:
+    CaptureSource;
 
-  qc: ImageQualityMetrics;
+  qc:
+    ImageQualityMetrics;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Clinical Assessment                                                        */
-/* -------------------------------------------------------------------------- */
+
 
 export interface ClinicalAssessment {
   fullName?: string;
 
-  /*
-   * Legacy compatibility.
-   */
+  
   firstName?: string;
 
   lastName?: string;
 
   ageYears?: number;
 
-  sex: BiologicalSex;
+  sex:
+    BiologicalSex;
 
   heightCm?: number;
 
   weightKg?: number;
 
-  neckMobility: NeckMobility;
+  neckMobility:
+    NeckMobility;
 
   headRotationStatus?:
     HeadRotationStatus;
 
-  /*
-   * Legacy compatibility.
-   */
+    
   neckRotationDegrees?: number;
 
   mallampatiClass:
@@ -231,15 +222,20 @@ export interface ClinicalAssessment {
   upperLipBiteClass:
     UpperLipBiteClass;
 
-  interincisorDistanceMm?: number;
+  interincisorDistanceMm?:
+    number;
 
-  thyromentalDistanceMm?: number;
+  thyromentalDistanceMm?:
+    number;
 
-  sternomentalDistanceMm?: number;
+  sternomentalDistanceMm?:
+    number;
 
-  hyomentalDistanceMm?: number;
+  hyomentalDistanceMm?:
+    number;
 
-  neckCircumferenceMm?: number;
+  neckCircumferenceMm?:
+    number;
 
   retrognathia:
     YesNoUnknown;
@@ -247,14 +243,8 @@ export interface ClinicalAssessment {
   prominentUpperIncisors:
     YesNoUnknown;
 
-  /**
-   * Backend:
-   * previous_difficult_intubation
-   *
-   * yes     → آره
-   * no      → خیر
-   * unknown → نمی‌دانم
-   */
+
+    
   priorDifficultIntubation:
     YesNoUnknown;
 }
@@ -264,11 +254,14 @@ export interface ClinicalAssessment {
 /* -------------------------------------------------------------------------- */
 
 export interface ConsentRecord {
-  given: boolean;
+  given:
+    boolean;
 
-  version: string;
+  version:
+    string;
 
-  capturedAt?: string;
+  capturedAt?:
+    string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -280,11 +273,14 @@ export interface AirwayCase {
 
   caseCode: string;
 
-  protocolVersion: string;
+  protocolVersion:
+    string;
 
-  operatorId?: string;
+  operatorId?:
+    string;
 
-  operatorNameSnapshot?: string;
+  operatorNameSnapshot?:
+    string;
 
   consent:
     ConsentRecord;
@@ -310,13 +306,17 @@ export interface AirwayCase {
   neckMobility?:
     NeckMobility;
 
-  preopLockedAt?: string;
+  preopLockedAt?:
+    string;
 
-  captureCompletedAt?: string;
+  captureCompletedAt?:
+    string;
 
-  createdAt: string;
+  createdAt:
+    string;
 
-  updatedAt: string;
+  updatedAt:
+    string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -331,11 +331,14 @@ export interface StoredPhoto {
   kind:
     CaptureKind;
 
-  blob: Blob;
+  blob:
+    Blob;
 
-  filename: string;
+  filename:
+    string;
 
-  mimeType: string;
+  mimeType:
+    string;
 
   source:
     CaptureSource;
@@ -343,9 +346,11 @@ export interface StoredPhoto {
   qc:
     ImageQualityMetrics;
 
-  createdAt: string;
+  createdAt:
+    string;
 
-  updatedAt?: string;
+  updatedAt?:
+    string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -372,5 +377,6 @@ export interface AuditEntry {
 
   details?: string;
 
-  createdAt: string;
+  createdAt:
+    string;
 }

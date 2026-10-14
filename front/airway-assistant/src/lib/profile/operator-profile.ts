@@ -21,8 +21,12 @@ interface LegacyOperatorProfile {
 }
 
 
-interface BackendRegistrationResponse {
+interface BackendDeviceResponse {
+  device_id?: string;
+
   token?: string;
+
+  recovery_key?: string;
 
   detail?: string;
 
@@ -30,39 +34,102 @@ interface BackendRegistrationResponse {
 }
 
 
+export class OperatorDeviceError
+  extends Error {
+  code:
+    string;
+
+  status?:
+    number;
+
+  constructor(
+    message:
+      string,
+
+    code:
+      string,
+
+    status?:
+      number,
+  ) {
+    super(
+      message,
+    );
+
+    this.name =
+      "OperatorDeviceError";
+
+    this.code =
+      code;
+
+    this.status =
+      status;
+  }
+}
+
+
 function normalizeFullName(
-  value: string,
+  value:
+    string,
 ) {
   return value
-    .replace(/\s+/g, " ")
+    .replace(
+      /\s+/g,
+      " ",
+    )
     .trim();
 }
 
 
+function sameDeviceId(
+  first:
+    string,
+
+  second:
+    string,
+) {
+  return (
+    first
+      .trim()
+      .toLowerCase() ===
+    second
+      .trim()
+      .toLowerCase()
+  );
+}
+
+
 function isOperatorProfile(
-  value: unknown,
+  value:
+    unknown,
 ): value is OperatorProfile {
   if (
     !value ||
-    typeof value !== "object"
+    typeof value !==
+      "object"
   ) {
     return false;
   }
 
   const candidate =
-    value as Partial<OperatorProfile>;
+    value as
+      Partial<OperatorProfile>;
 
   return (
     typeof candidate.id ===
       "string" &&
-    candidate.id.length > 0 &&
+    candidate.id.length >
+      0 &&
 
     typeof candidate.fullName ===
       "string" &&
-    candidate.fullName.trim()
-      .length > 0 &&
+    candidate.fullName
+      .trim()
+      .length >
+      0 &&
 
-    candidate.version === 2 &&
+    candidate.version ===
+      2 &&
 
     typeof candidate.createdAt ===
       "string" &&
@@ -74,6 +141,13 @@ function isOperatorProfile(
       candidate.deviceToken ===
         undefined ||
       typeof candidate.deviceToken ===
+        "string"
+    ) &&
+
+    (
+      candidate.recoveryKey ===
+        undefined ||
+      typeof candidate.recoveryKey ===
         "string"
     ) &&
 
@@ -92,14 +166,17 @@ function saveOperatorProfile(
     OperatorProfile,
 ) {
   if (
-    typeof window === "undefined"
+    typeof window ===
+    "undefined"
   ) {
     return;
   }
 
   window.localStorage.setItem(
     STORAGE_KEY,
-    JSON.stringify(profile),
+    JSON.stringify(
+      profile,
+    ),
   );
 }
 
@@ -108,15 +185,17 @@ function migrateLegacyProfile():
   | OperatorProfile
   | null {
   if (
-    typeof window === "undefined"
+    typeof window ===
+    "undefined"
   ) {
     return null;
   }
 
   const raw =
-    window.localStorage.getItem(
-      LEGACY_STORAGE_KEY,
-    );
+    window.localStorage
+      .getItem(
+        LEGACY_STORAGE_KEY,
+      );
 
   if (!raw) {
     return null;
@@ -126,7 +205,8 @@ function migrateLegacyProfile():
     const legacy =
       JSON.parse(
         raw,
-      ) as LegacyOperatorProfile;
+      ) as
+        LegacyOperatorProfile;
 
     const fullName =
       typeof legacy.fullName ===
@@ -141,20 +221,23 @@ function migrateLegacyProfile():
     }
 
     const now =
-      new Date().toISOString();
+      new Date()
+        .toISOString();
 
     const profile:
       OperatorProfile = {
       id:
         typeof legacy.id ===
           "string" &&
-        legacy.id.length > 0
+        legacy.id.length >
+          0
           ? legacy.id
           : crypto.randomUUID(),
 
       fullName,
 
-      version: 2,
+      version:
+        2,
 
       createdAt:
         legacy.createdAt ??
@@ -168,9 +251,10 @@ function migrateLegacyProfile():
       profile,
     );
 
-    window.localStorage.removeItem(
-      LEGACY_STORAGE_KEY,
-    );
+    window.localStorage
+      .removeItem(
+        LEGACY_STORAGE_KEY,
+      );
 
     return profile;
   } catch {
@@ -183,15 +267,17 @@ export function getOperatorProfile():
   | OperatorProfile
   | null {
   if (
-    typeof window === "undefined"
+    typeof window ===
+    "undefined"
   ) {
     return null;
   }
 
   const raw =
-    window.localStorage.getItem(
-      STORAGE_KEY,
-    );
+    window.localStorage
+      .getItem(
+        STORAGE_KEY,
+      );
 
   if (!raw) {
     return migrateLegacyProfile();
@@ -200,25 +286,29 @@ export function getOperatorProfile():
   try {
     const parsed:
       unknown =
-      JSON.parse(raw);
+      JSON.parse(
+        raw,
+      );
 
     if (
       !isOperatorProfile(
         parsed,
       )
     ) {
-      window.localStorage.removeItem(
-        STORAGE_KEY,
-      );
+      window.localStorage
+        .removeItem(
+          STORAGE_KEY,
+        );
 
       return migrateLegacyProfile();
     }
 
     return parsed;
   } catch {
-    window.localStorage.removeItem(
-      STORAGE_KEY,
-    );
+    window.localStorage
+      .removeItem(
+        STORAGE_KEY,
+      );
 
     return migrateLegacyProfile();
   }
@@ -226,16 +316,20 @@ export function getOperatorProfile():
 
 
 export function createLocalOperatorProfile(
-  fullName: string,
+  fullName:
+    string,
 ): OperatorProfile {
   if (
-    typeof window === "undefined"
+    typeof window ===
+    "undefined"
   ) {
     throw new Error(
       "OPERATOR_PROFILE_CLIENT_ONLY",
     );
   }
 
+
+  
   const existing =
     getOperatorProfile();
 
@@ -255,7 +349,8 @@ export function createLocalOperatorProfile(
   }
 
   const now =
-    new Date().toISOString();
+    new Date()
+      .toISOString();
 
   const profile:
     OperatorProfile = {
@@ -265,7 +360,8 @@ export function createLocalOperatorProfile(
     fullName:
       normalized,
 
-    version: 2,
+    version:
+      2,
 
     createdAt:
       now,
@@ -278,17 +374,36 @@ export function createLocalOperatorProfile(
     profile,
   );
 
-  window.localStorage.removeItem(
-    LEGACY_STORAGE_KEY,
-  );
+  window.localStorage
+    .removeItem(
+      LEGACY_STORAGE_KEY,
+    );
 
   return profile;
 }
 
 
+async function readDeviceResponse(
+  response:
+    Response,
+): Promise<BackendDeviceResponse> {
+  try {
+    return (
+      await response.json()
+    ) as
+      BackendDeviceResponse;
+  } catch {
+    return {};
+  }
+}
+
+
 async function requestRegistration(
-  deviceId: string,
-  fullName: string,
+  deviceId:
+    string,
+
+  fullName:
+    string,
 ) {
   const response =
     await fetch(
@@ -319,113 +434,447 @@ async function requestRegistration(
       },
     );
 
-  let data:
-    BackendRegistrationResponse =
-    {};
-
-  try {
-    data =
-      (await response.json()) as
-        BackendRegistrationResponse;
-  } catch {
-    data = {};
-  }
-
   return {
     response,
-    data,
+
+    data:
+      await readDeviceResponse(
+        response,
+      ),
   };
 }
 
 
-export async function ensureOperatorRegistered(
-  options?: {
-    force?: boolean;
-  },
-): Promise<OperatorProfile> {
+async function requestRecoveryKey(
+  token:
+    string,
+) {
+  const response =
+    await fetch(
+      "/api/device/recovery-key",
+      {
+        method:
+          "POST",
+
+        headers: {
+          Accept:
+            "application/json",
+
+          "X-Device-Token":
+            token,
+        },
+
+        cache:
+          "no-store",
+      },
+    );
+
+  return {
+    response,
+
+    data:
+      await readDeviceResponse(
+        response,
+      ),
+  };
+}
+
+
+async function requestRecovery(
+  deviceId:
+    string,
+
+  recoveryKey:
+    string,
+) {
+  const response =
+    await fetch(
+      "/api/device/recover",
+      {
+        method:
+          "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          Accept:
+            "application/json",
+        },
+
+        body:
+          JSON.stringify({
+            device_id:
+              deviceId,
+
+            recovery_key:
+              recoveryKey,
+          }),
+
+        cache:
+          "no-store",
+      },
+    );
+
+  return {
+    response,
+
+    data:
+      await readDeviceResponse(
+        response,
+      ),
+  };
+}
+
+
+function throwCommonDeviceError(
+  response:
+    Response,
+
+  data:
+    BackendDeviceResponse,
+
+  fallbackCode:
+    string,
+
+  fallbackMessage:
+    string,
+): never {
+  if (
+    response.status ===
+    403
+  ) {
+    throw new OperatorDeviceError(
+      "این دستگاه توسط مدیر غیرفعال شده است.",
+
+      "DEVICE_DISABLED",
+
+      403,
+    );
+  }
+
+  if (
+    response.status ===
+    429
+  ) {
+    throw new OperatorDeviceError(
+      "تعداد درخواست‌ها زیاد است. کمی بعد دوباره تلاش کنید.",
+
+      "DEVICE_RATE_LIMITED",
+
+      429,
+    );
+  }
+
+  if (
+    response.status >=
+    500
+  ) {
+    throw new OperatorDeviceError(
+      "ارتباط با سرور موقتاً در دسترس نیست.",
+
+      "BACKEND_UNAVAILABLE",
+
+      response.status,
+    );
+  }
+
+  throw new OperatorDeviceError(
+    data.detail ||
+      fallbackMessage,
+
+    data.code ||
+      fallbackCode,
+
+    response.status,
+  );
+}
+
+
+
+export async function ensureOperatorRecoveryKey():
+  Promise<OperatorProfile> {
   const profile =
     getOperatorProfile();
 
   if (!profile) {
-    throw new Error(
+    throw new OperatorDeviceError(
+      "مشخصات پزشک روی دستگاه موجود نیست.",
+
       "OPERATOR_PROFILE_REQUIRED",
     );
   }
 
-  const force =
-    options?.force === true;
 
+  
   if (
-    profile.deviceToken &&
-    !force
+    profile.recoveryKey
   ) {
     return profile;
   }
 
-  let deviceId =
-    force
-      ? crypto.randomUUID()
-      : profile.id;
+  if (
+    !profile.deviceToken
+  ) {
+    throw new OperatorDeviceError(
+      "اطلاعات بازیابی این نصب موجود نیست.",
 
-  let registration =
+      "DEVICE_RECOVERY_REQUIRED",
+
+      401,
+    );
+  }
+
+  const result =
+    await requestRecoveryKey(
+      profile.deviceToken,
+    );
+
+  if (
+    !result.response.ok
+  ) {
+
+    
+    if (
+      result.response.status ===
+      401
+    ) {
+      throw new OperatorDeviceError(
+        "اتصال این نصب نیاز به بررسی دارد. اطلاعات و شناسه دستگاه حفظ شده‌اند.",
+
+        "DEVICE_RECOVERY_REQUIRED",
+
+        401,
+      );
+    }
+
+    throwCommonDeviceError(
+      result.response,
+      result.data,
+      "RECOVERY_KEY_FAILED",
+      "دریافت اطلاعات بازیابی انجام نشد.",
+    );
+  }
+
+  const recoveryKey =
+    result.data
+      .recovery_key;
+
+  if (!recoveryKey) {
+    throw new OperatorDeviceError(
+      "سرور recovery key را برنگرداند.",
+
+      "RECOVERY_KEY_MISSING",
+    );
+  }
+
+  if (
+    result.data.device_id &&
+    !sameDeviceId(
+      result.data.device_id,
+      profile.id,
+    )
+  ) {
+    throw new OperatorDeviceError(
+      "شناسه دستگاه با اطلاعات محلی مطابقت ندارد.",
+
+      "DEVICE_ID_MISMATCH",
+    );
+  }
+
+  const updated:
+    OperatorProfile = {
+    ...profile,
+
+    recoveryKey,
+
+    updatedAt:
+      new Date()
+        .toISOString(),
+  };
+
+  saveOperatorProfile(
+    updated,
+  );
+
+  return updated;
+}
+
+ 
+export async function recoverOperatorDevice():
+  Promise<OperatorProfile> {
+  const profile =
+    getOperatorProfile();
+
+  if (!profile) {
+    throw new OperatorDeviceError(
+      "مشخصات پزشک روی دستگاه موجود نیست.",
+
+      "OPERATOR_PROFILE_REQUIRED",
+    );
+  }
+
+  if (
+    !profile.recoveryKey
+  ) {
+    throw new OperatorDeviceError(
+      "اطلاعات بازیابی این نصب موجود نیست.",
+
+      "DEVICE_RECOVERY_REQUIRED",
+
+      401,
+    );
+  }
+
+  const result =
+    await requestRecovery(
+      profile.id,
+      profile.recoveryKey,
+    );
+
+  if (
+    !result.response.ok
+  ) {
+ 
+    if (
+      result.response.status ===
+      401
+    ) {
+      throw new OperatorDeviceError(
+        "بازیابی اتصال این دستگاه انجام نشد و نیاز به بررسی دارد.",
+
+        "DEVICE_RECOVERY_FAILED",
+
+        401,
+      );
+    }
+
+    throwCommonDeviceError(
+      result.response,
+      result.data,
+      "DEVICE_RECOVERY_FAILED",
+      "بازیابی Device انجام نشد.",
+    );
+  }
+
+  const token =
+    result.data.token;
+
+  if (!token) {
+    throw new OperatorDeviceError(
+      "سرور token جدید را برنگرداند.",
+
+      "DEVICE_TOKEN_MISSING",
+    );
+  }
+
+  if (
+    result.data.device_id &&
+    !sameDeviceId(
+      result.data.device_id,
+      profile.id,
+    )
+  ) {
+    throw new OperatorDeviceError(
+      "شناسه Device بعد از recovery تغییر کرده است.",
+
+      "DEVICE_ID_MISMATCH",
+    );
+  }
+
+  const now =
+    new Date()
+      .toISOString();
+
+  const recovered:
+    OperatorProfile = {
+    ...profile,
+
+   
+    deviceToken:
+      token,
+
+    registeredAt:
+      profile.registeredAt ??
+      now,
+
+    updatedAt:
+      now,
+  };
+
+  saveOperatorProfile(
+    recovered,
+  );
+
+  return recovered;
+}
+
+ 
+export async function ensureOperatorRegistered(
+ 
+  _options?: {
+    force?: boolean;
+  },
+): Promise<OperatorProfile> {
+  let profile =
+    getOperatorProfile();
+
+  if (!profile) {
+    throw new OperatorDeviceError(
+      "مشخصات پزشک روی دستگاه موجود نیست.",
+
+      "OPERATOR_PROFILE_REQUIRED",
+    );
+  }
+ 
+  if (
+    profile.deviceToken
+  ) {
+    if (
+      !profile.recoveryKey
+    ) {
+      profile =
+        await ensureOperatorRecoveryKey();
+    }
+
+    return profile;
+  }
+
+ 
+  if (
+    profile.recoveryKey
+  ) {
+    return recoverOperatorDevice();
+  }
+ 
+  const registration =
     await requestRegistration(
-      deviceId,
+      profile.id,
       profile.fullName,
     );
 
-  /*
-   * Backend cannot re-issue an old token.
-   * If the ID is already registered but this
-   * browser no longer has its token, register
-   * a fresh device ID.
-   */
+ 
   if (
     registration.response.status ===
     409
   ) {
-    deviceId =
-      crypto.randomUUID();
+    throw new OperatorDeviceError(
+      "این نصب قبلاً ثبت شده است اما اطلاعات بازیابی آن روی دستگاه موجود نیست.",
 
-    registration =
-      await requestRegistration(
-        deviceId,
-        profile.fullName,
-      );
+      "DEVICE_RECOVERY_REQUIRED",
+
+      409,
+    );
   }
 
   if (
     !registration.response.ok
   ) {
-    if (
-      registration.response.status ===
-      429
-    ) {
-      throw new Error(
-        "REGISTRATION_RATE_LIMITED",
-      );
-    }
-
-    if (
-      registration.data.code ===
-      "BACKEND_NOT_CONFIGURED"
-    ) {
-      throw new Error(
-        "BACKEND_NOT_CONFIGURED",
-      );
-    }
-
-    if (
-      registration.response.status >=
-      500
-    ) {
-      throw new Error(
-        "BACKEND_UNAVAILABLE",
-      );
-    }
-
-    throw new Error(
-      registration.data.detail ||
+    throwCommonDeviceError(
+      registration.response,
+      registration.data,
       "DEVICE_REGISTRATION_FAILED",
+      "ثبت دستگاه انجام نشد.",
     );
   }
 
@@ -433,23 +882,42 @@ export async function ensureOperatorRegistered(
     registration.data.token;
 
   if (!token) {
-    throw new Error(
+    throw new OperatorDeviceError(
+      "Device token از سرور دریافت نشد.",
+
       "DEVICE_TOKEN_MISSING",
     );
   }
 
-  const now =
-    new Date().toISOString();
+  if (
+    registration.data.device_id &&
+    !sameDeviceId(
+      registration.data.device_id,
+      profile.id,
+    )
+  ) {
+    throw new OperatorDeviceError(
+      "شناسه Device برگشتی با شناسه این نصب مطابقت ندارد.",
 
-  const registered:
+      "DEVICE_ID_MISMATCH",
+    );
+  }
+
+  const now =
+    new Date()
+      .toISOString();
+
+  let registered:
     OperatorProfile = {
     ...profile,
 
-    id:
-      deviceId,
-
+   
     deviceToken:
       token,
+
+    recoveryKey:
+      registration.data
+        .recovery_key,
 
     registeredAt:
       now,
@@ -462,22 +930,34 @@ export async function ensureOperatorRegistered(
     registered,
   );
 
+ 
+  if (
+    !registered.recoveryKey
+  ) {
+    registered =
+      await ensureOperatorRecoveryKey();
+  }
+
   return registered;
 }
 
 
 export function clearOperatorProfile() {
   if (
-    typeof window === "undefined"
+    typeof window ===
+    "undefined"
   ) {
     return;
   }
 
-  window.localStorage.removeItem(
-    STORAGE_KEY,
-  );
+  window.localStorage
+    .removeItem(
+      STORAGE_KEY,
+    );
 
-  window.localStorage.removeItem(
-    LEGACY_STORAGE_KEY,
-  );
+  window.localStorage
+    .removeItem(
+      LEGACY_STORAGE_KEY,
+    );
 }
+

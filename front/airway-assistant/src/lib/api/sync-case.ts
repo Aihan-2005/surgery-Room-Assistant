@@ -15,8 +15,10 @@ import type {
 
 import {
   ensureOperatorRegistered,
-  getOperatorProfile,
+  OperatorDeviceError,
+  recoverOperatorDevice,
 } from "@/lib/profile/operator-profile";
+
 
 export class CaseSyncError
   extends Error {
@@ -51,6 +53,7 @@ export class CaseSyncError
   }
 }
 
+
 /*
  * هر Case در هر لحظه فقط یک upload واقعی دارد.
  */
@@ -60,14 +63,17 @@ const inFlightCaseSyncs =
     Promise<CaseSyncResponse>
   >();
 
+
 export function isCaseSyncInFlight(
   caseId:
     string,
 ) {
-  return inFlightCaseSyncs.has(
-    caseId,
-  );
+  return inFlightCaseSyncs
+    .has(
+      caseId,
+    );
 }
+
 
 async function readResponse(
   response:
@@ -76,7 +82,8 @@ async function readResponse(
   try {
     return (
       await response.json()
-    ) as CaseSyncResponse;
+    ) as
+      CaseSyncResponse;
   } catch {
     return {
       success:
@@ -90,6 +97,7 @@ async function readResponse(
     };
   }
 }
+
 
 async function ensureSuccess(
   response:
@@ -120,6 +128,54 @@ async function ensureSuccess(
   return result;
 }
 
+
+function convertDeviceError(
+  error:
+    unknown,
+
+  fallbackMessage:
+    string,
+): CaseSyncError {
+  if (
+    error instanceof
+      OperatorDeviceError
+  ) {
+    return new CaseSyncError(
+      error.message,
+
+      error.code,
+
+      error.status,
+    );
+  }
+
+  if (
+    error instanceof
+      CaseSyncError
+  ) {
+    return error;
+  }
+
+  return new CaseSyncError(
+    error instanceof
+      Error
+      ? error.message
+      : fallbackMessage,
+
+    "DEVICE_OPERATION_FAILED",
+
+    503,
+  );
+}
+
+
+/*
+ * فقط خطاهایی که با گذشت زمان یا برگشت
+ * شبکه احتمال حل شدن دارند queued می‌شوند.
+ *
+ * خطای Recovery/Disabled عمداً retry
+ * خودکار بی‌نهایت نمی‌شود.
+ */
 function isRetryableError(
   error:
     unknown,
@@ -137,15 +193,13 @@ function isRetryableError(
     error.code ===
       "BACKEND_NOT_CONFIGURED" ||
     error.code ===
+      "BACKEND_UNAVAILABLE" ||
+    error.code ===
+      "BACKEND_UNREACHABLE" ||
+    error.code ===
       "SYNC_GATEWAY_ERROR" ||
     error.code ===
       "PHOTO_NETWORK_ERROR" ||
-    error.code ===
-      "DEVICE_NOT_REGISTERED" ||
-    error.code ===
-      "DEVICE_TOKEN_REQUIRED" ||
-    error.code ===
-      "DEVICE_UNAUTHORIZED" ||
     error.code ===
       "NETWORK_ERROR"
   ) {
@@ -171,61 +225,85 @@ function isRetryableError(
   );
 }
 
-async function getDeviceToken(
-  force:
-    boolean,
-) {
-  let profile =
-    getOperatorProfile();
 
-  if (!profile) {
-    throw new CaseSyncError(
-      "مشخصات پزشک روی دستگاه موجود نیست.",
+/* -------------------------------------------------------------------------- */
+/* Device token                                                               */
+/* -------------------------------------------------------------------------- */
 
-      "OPERATOR_PROFILE_REQUIRED",
-    );
-  }
+async function getDeviceToken() {
+  try {
+    /*
+     * این تابع:
+     *
+     * - اولین registration را انجام می‌دهد
+     * - recovery_key را برای نصب‌های قدیمی می‌گیرد
+     * - اگر token وجود ندارد ولی recoveryKey هست،
+     *   همان Device را recover می‌کند
+     *
+     * ولی هرگز UUID جدید نمی‌سازد.
+     */
+    const profile =
+      await ensureOperatorRegistered();
 
-  if (
-    force ||
-    !profile.deviceToken
-  ) {
-    try {
-      profile =
-        await ensureOperatorRegistered(
-          {
-            force,
-          },
-        );
-    } catch (
-      error
+    if (
+      !profile.deviceToken
     ) {
-      throw new CaseSyncError(
-        error instanceof Error
-          ? error.message
-          : "ثبت Device انجام نشد.",
+      throw new OperatorDeviceError(
+        "Device token موجود نیست.",
 
-        "DEVICE_NOT_REGISTERED",
+        "DEVICE_TOKEN_REQUIRED",
 
-        503,
+        401,
       );
     }
-  }
 
-  if (
-    !profile.deviceToken
+    return profile.deviceToken;
+  } catch (
+    error
   ) {
-    throw new CaseSyncError(
-      "Device token موجود نیست.",
-
-      "DEVICE_NOT_REGISTERED",
-
-      401,
+    throw convertDeviceError(
+      error,
+      "آماده‌سازی Device انجام نشد.",
     );
   }
-
-  return profile.deviceToken;
 }
+
+
+async function recoverDeviceToken() {
+  try {
+    /*
+     * فقط همین Device recover می‌شود.
+     *
+     * UUID ثابت می‌ماند.
+     */
+    const profile =
+      await recoverOperatorDevice();
+
+    if (
+      !profile.deviceToken
+    ) {
+      throw new OperatorDeviceError(
+        "Token جدید دریافت نشد.",
+
+        "DEVICE_TOKEN_MISSING",
+      );
+    }
+
+    return profile.deviceToken;
+  } catch (
+    error
+  ) {
+    throw convertDeviceError(
+      error,
+      "بازیابی Device انجام نشد.",
+    );
+  }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* One complete upload attempt                                                */
+/* -------------------------------------------------------------------------- */
 
 async function uploadAttempt(
   airwayCase:
@@ -270,13 +348,16 @@ async function uploadAttempt(
     metadataResponse,
   );
 
+
   /*
    * 2. تصاویر یکی‌یکی
    *
-   * عمداً parallel نمی‌فرستیم تا:
-   * - RAM کمتر مصرف شود
-   * - فشار Backend کمتر باشد
-   * - روی موبایل قابل اعتمادتر باشد
+   * عمدی است که parallel نیست:
+   *
+   * - RAM کمتر
+   * - فشار کمتر روی Backend
+   * - پایدارتر روی موبایل
+   * - recovery ساده‌تر
    */
   for (
     const photo of
@@ -325,6 +406,7 @@ async function uploadAttempt(
     );
   }
 
+
   /*
    * 3. Complete
    */
@@ -352,6 +434,11 @@ async function uploadAttempt(
   );
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Case sync                                                                  */
+/* -------------------------------------------------------------------------- */
+
 async function syncCaseInternal(
   caseId:
     string,
@@ -369,13 +456,15 @@ async function syncCaseInternal(
     );
   }
 
+
   const photos =
     await getPhotosByCase(
       caseId,
     );
 
   if (
-    photos.length === 0
+    photos.length ===
+    0
   ) {
     await updateCaseStatus(
       caseId,
@@ -389,16 +478,20 @@ async function syncCaseInternal(
     );
   }
 
+
   await updateCaseStatus(
     caseId,
     "syncing",
   );
 
+
   try {
+    /*
+     * Token فعلی یا registration اولیه.
+     */
     let token =
-      await getDeviceToken(
-        false,
-      );
+      await getDeviceToken();
+
 
     try {
       const result =
@@ -418,23 +511,35 @@ async function syncCaseInternal(
       firstError
     ) {
       /*
-       * اگر token قبلی دیگر معتبر نبود،
-       * فقط یک بار Device جدید register
-       * شده و عملیات retry می‌شود.
+       * مهم‌ترین بخش Recovery:
        *
-       * PUTهای Backend idempotent هستند.
+       * فقط 401 باعث recovery می‌شود.
+       *
+       * 403 به معنی disabled بودن Device است
+       * و هرگز recover/register خودکار نمی‌شود.
        */
       if (
         firstError instanceof
           CaseSyncError &&
-        firstError.code ===
-          "DEVICE_UNAUTHORIZED"
+        firstError.status ===
+          401
       ) {
+        /*
+         * فقط یک بار recovery.
+         *
+         * اگر retry دوم هم 401 بدهد،
+         * دیگر recovery دوم انجام نمی‌دهیم.
+         */
         token =
-          await getDeviceToken(
-            true,
-          );
+          await recoverDeviceToken();
 
+        /*
+         * همان AirwayCase object
+         * همان airwayCase.id
+         * همان photo.idها
+         *
+         * هیچ UUID جدیدی تولید نمی‌شود.
+         */
         const result =
           await uploadAttempt(
             airwayCase,
@@ -450,6 +555,9 @@ async function syncCaseInternal(
         return result;
       }
 
+      /*
+       * 403 یا هر خطای دیگر.
+       */
       throw firstError;
     }
   } catch (
@@ -460,26 +568,46 @@ async function syncCaseInternal(
         error,
       )
     ) {
+      /*
+       * شبکه / Backend موقتاً unavailable.
+       *
+       * AutoSync بعداً دوباره تلاش می‌کند.
+       */
       await updateCaseStatus(
         caseId,
         "queued",
       );
     } else {
+      /*
+       * مواردی مثل:
+       *
+       * DEVICE_DISABLED
+       * DEVICE_RECOVERY_REQUIRED
+       * DEVICE_RECOVERY_FAILED
+       * second 401
+       *
+       * در Queue باقی می‌مانند چون صفحه Queue
+       * failed را هم نمایش می‌دهد، ولی AutoSync
+       * بی‌نهایت Backend را hammer نمی‌کند.
+       */
       await updateCaseStatus(
         caseId,
         "failed",
       );
     }
 
+
     if (
       error instanceof
-      CaseSyncError
+        CaseSyncError
     ) {
       throw error;
     }
 
+
     throw new CaseSyncError(
-      error instanceof Error
+      error instanceof
+        Error
         ? error.message
         : "ارسال Case انجام نشد.",
 
@@ -488,18 +616,25 @@ async function syncCaseInternal(
   }
 }
 
+
 export function syncCase(
   caseId:
     string,
 ): Promise<CaseSyncResponse> {
+  /*
+   * اگر همین Case همین الآن در حال sync است،
+   * Promise موجود را برگردان.
+   */
   const existing =
-    inFlightCaseSyncs.get(
-      caseId,
-    );
+    inFlightCaseSyncs
+      .get(
+        caseId,
+      );
 
   if (existing) {
     return existing;
   }
+
 
   const task =
     syncCaseInternal(
@@ -507,16 +642,20 @@ export function syncCase(
     ).finally(
       () => {
         if (
-          inFlightCaseSyncs.get(
-            caseId,
-          ) === task
+          inFlightCaseSyncs
+            .get(
+              caseId,
+            ) ===
+          task
         ) {
-          inFlightCaseSyncs.delete(
-            caseId,
-          );
+          inFlightCaseSyncs
+            .delete(
+              caseId,
+            );
         }
       },
     );
+
 
   inFlightCaseSyncs.set(
     caseId,
