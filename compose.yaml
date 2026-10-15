@@ -1,0 +1,110 @@
+name: airway
+
+x-backend: &backend
+  image: ${IMAGE_PREFIX:-airway-local}/backend:${IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment:
+    DJANGO_DEBUG: "0"
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in the Compose env file}
+    DJANGO_ALLOWED_HOSTS: ${APP_HOST:?Set APP_HOST},backend,localhost,127.0.0.1
+    CSRF_TRUSTED_ORIGINS: ${APP_ORIGIN:?Set APP_ORIGIN}
+    CORS_ALLOWED_ORIGINS: ${APP_ORIGIN}
+    # Caddy owns the public HTTP -> HTTPS redirect. The backend port is private,
+    # and Next.js must be able to call Django over the internal HTTP network.
+    DJANGO_SECURE_SSL_REDIRECT: "0"
+    DJANGO_COOKIE_SECURE: ${DJANGO_COOKIE_SECURE:-1}
+    HSTS_SECONDS: ${HSTS_SECONDS:-3600}
+    DB_NAME: airway
+    DB_USER: airway
+    DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the Compose env file}
+    DB_HOST: db
+    DB_PORT: "5432"
+    MEDIA_ROOT: /data/media
+    STATIC_ROOT: /data/static
+    CACHE_BACKEND: django.core.cache.backends.db.DatabaseCache
+    CACHE_LOCATION: airway_cache
+    NUM_PROXIES: "1"
+    REGISTER_RATE: ${REGISTER_RATE:-30/hour}
+    RECOVER_RATE: ${RECOVER_RATE:-30/hour}
+    WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+    WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+    WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-}
+  volumes:
+    - media:/data/media
+    - static:/data/static
+  security_opt:
+    - no-new-privileges:true
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: airway
+      POSTGRES_USER: airway
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U airway -d airway"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+
+  backend:
+    <<: *backend
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+  frontend:
+    image: ${IMAGE_PREFIX:-airway-local}/frontend:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: front/airway-assistant/Dockerfile
+    environment:
+      BACKEND_API_URL: http://backend:8000
+      APP_ORIGIN: ${APP_ORIGIN}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
+  gateway:
+    image: caddy:2-alpine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - static:/srv/static:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  postgres:
+  media:
+  static:
+  caddy_data:
+  caddy_config:

@@ -389,11 +389,12 @@ class ListTests(BaseAPITest):
         self.assertEqual(ids, [new, old])
 
 
+@override_settings(WEB_PUSH_ENABLED=False)
 class HealthTests(BaseAPITest):
     def test_health_is_public_and_never_cached(self):
         response = self.client.get(f"{API}/health/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, {"status": "ok", "database_ready": True})
+        self.assertEqual(response.data, {"status": "ok", "database_ready": True, "web_push_ready": False})
         self.assertEqual(response["Cache-Control"], "no-store")
 
     def test_database_failure_is_reported_as_unavailable(self):

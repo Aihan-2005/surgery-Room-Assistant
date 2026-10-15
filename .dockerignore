@@ -1,0 +1,27 @@
+# Only application sources enter the build context. In particular, never send
+# local .env files, patient data, certificates, Git credentials or virtualenvs.
+**
+!requirements.txt
+!backend/
+!backend/**
+!front/
+!front/airway-assistant/
+!front/airway-assistant/**
+**/.env
+**/.env.*
+**/node_modules
+**/.next
+**/.git
+**/__pycache__
+**/*.pyc
+**/*.sqlite3
+**/*.zip
+**/*.dump
+**/backups
+**/media
+**/staticfiles
+**/*.pem
+**/*.key
+**/*.crt
+**/.DS_Store
+**/*.tsbuildinfo

@@ -29,9 +29,18 @@ backups without changing database column names or its UUID relationships.
 The full-backup format, [restore procedure](backend/README.md#full-backup-from-admin),
 API contract, and [Linux VPS deployment guide](backend/README.md#linux-vps-deployment)
 are in the backend README. Ubuntu 24.04 LTS is the recommended starting point
-for the VPS; Debian 13 also meets the backend's Python requirement. This
-repository has not been deployed to a VPS yet.
+for the VPS; Debian 13 also meets the backend's Python requirement. That guide
+covers the backend service; the Docker guide below deploys both apps together.
 
 The [frontend README](front/airway-assistant/README.md) contains the frontend's
 development commands.
+
+## Docker and CI/CD
+
+The [Docker deployment guide](deploy/README.md) covers the Ubuntu 24.04 VPS at
+`/srv/airway/surgery-Room-Assistant`, an initial HTTP test, adding a domain for
+automatic HTTPS, and GitHub Actions deployment from `main`. The Compose setup
+runs both apps, PostgreSQL and Caddy, with persistent database/photo volumes.
+Automatic deployment stays disabled until `DEPLOY_ENABLED=true` is configured
+in GitHub and the required checks pass.
 

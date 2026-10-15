@@ -608,7 +608,7 @@ CACHES = {
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = (
-        True
+        os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "1") == "1"
     )
 
     SECURE_PROXY_SSL_HEADER = (
@@ -617,11 +617,11 @@ if not DEBUG:
     )
 
     SESSION_COOKIE_SECURE = (
-        True
+        os.environ.get("DJANGO_COOKIE_SECURE", "1") == "1"
     )
 
     CSRF_COOKIE_SECURE = (
-        True
+        SESSION_COOKIE_SECURE
     )
 
     SECURE_HSTS_SECONDS = int(

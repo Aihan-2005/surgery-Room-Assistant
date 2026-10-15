@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Run on the VPS: bash deploy/release.sh local (build there), or SHA (pull CI images).
+set -Eeuo pipefail
+umask 077
+
+release="${1:-}"
+if [[ "$release" != local && ! "$release" =~ ^[0-9a-f]{40}$ ]]; then
+    echo 'Usage: bash deploy/release.sh local|<40-character commit SHA>' >&2
+    exit 2
+fi
+
+state_dir="${AIRWAY_STATE_DIR:-/srv/airway}"
+project_dir="${AIRWAY_PROJECT_DIR:-$state_dir/surgery-Room-Assistant}"
+env_file="${AIRWAY_ENV_FILE:-/etc/airway/compose.env}"
+backup_root="${AIRWAY_BACKUP_DIR:-$state_dir/backups}"
+[[ -f "$env_file" ]] || { echo "Missing $env_file" >&2; exit 1; }
+if grep -Eq '^(APP_HOST|APP_ORIGIN|DJANGO_SECRET_KEY|DB_PASSWORD)=.*(REPLACE_WITH|YOUR_SERVER_IP)' "$env_file"; then
+    echo "Replace the example values in $env_file before deploying." >&2
+    exit 1
+fi
+mkdir -p "$backup_root"
+exec 9>"${AIRWAY_LOCK_FILE:-$state_dir/deploy.lock}"
+flock -n 9 || { echo 'Another deployment is running.' >&2; exit 1; }
+cd "$project_dir"
+
+maintenance=false
+backup_dir=''
+on_exit() {
+    local code=$?
+    [[ "$code" == 0 ]] && return
+    trap - EXIT
+    if [[ "$maintenance" == true ]]; then
+        compose stop gateway frontend backend || true
+        echo "Deployment failed; apps are stopped. Backups: $backup_dir" >&2
+        echo 'Inspect logs and the migration state before restarting or restoring.' >&2
+    else
+        echo 'Deployment failed before maintenance; existing apps were not stopped.' >&2
+    fi
+    exit "$code"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+if [[ "$release" != local ]]; then
+    # Refuse to overwrite tracked edits. Untracked secrets belong outside Git.
+    [[ -z "$(git status --porcelain --untracked-files=no)" ]] || {
+        echo 'Tracked server files have edits. Commit or move them before deploying.' >&2
+        exit 1
+    }
+    GIT_TERMINAL_PROMPT=0 git fetch origin main
+    latest_sha="$(git rev-parse origin/main)"
+    if [[ "$latest_sha" != "$release" ]]; then
+        echo 'This run has been superseded by a newer main commit; skipping deployment.'
+        exit 0
+    fi
+    git checkout --detach "$release"
+fi
+
+export IMAGE_TAG="$release"
+compose() {
+    # CI streams this script into bash over SSH. Keep Compose from consuming
+    # the remaining script as interactive container input.
+    docker compose --env-file "$env_file" -f "$project_dir/compose.yaml" "$@" < /dev/null
+}
+
+# Never print the expanded config: it contains secrets.
+compose config --quiet
+if [[ "$release" == local ]]; then
+    compose build backend frontend
+    compose pull db gateway
+else
+    compose pull
+fi
+# Seed new media/static volumes from the non-root backend image before Caddy
+# can mount the static volume. Otherwise an empty volume could be root-owned.
+compose run --rm --no-deps backend python -c "import os; assert os.access('/data/media', os.W_OK) and os.access('/data/static', os.W_OK), 'Check volume ownership (backend UID 10001)'"
+compose run --rm --no-deps gateway caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+maintenance=true
+compose stop gateway frontend backend
+compose up -d --no-build --wait --wait-timeout 120 db
+
+# Both database and photos are copied while all app writers are stopped.
+backup_dir="$(mktemp -d "$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-$release.XXXXXX")"
+compose exec -T db pg_dump -U airway -d airway --format=custom > "$backup_dir/database.dump"
+compose run --rm -T --no-deps backend tar -czf - -C /data/media . > "$backup_dir/media.tar.gz"
+if [[ -f "$state_dir/current-release" ]]; then
+    cp "$state_dir/current-release" "$backup_dir/previous-release"
+fi
+
+compose run --rm --no-deps backend python manage.py migrate --noinput
+compose run --rm --no-deps backend python manage.py createcachetable
+compose run --rm --no-deps backend python manage.py collectstatic --noinput
+compose up -d --no-build --wait --wait-timeout 180 backend frontend gateway
+
+# Also test the public gateway: a healthy container alone cannot verify routing/TLS.
+compose exec -T frontend node --input-type=module -e '
+let lastError;
+for (let attempt = 0; attempt < 12; attempt++) {
+  try {
+    const origin = process.env.APP_ORIGIN;
+    const page = await fetch(origin + "/", {signal: AbortSignal.timeout(10000)});
+    if (!page.ok) throw new Error("Homepage HTTP " + page.status);
+    const response = await fetch(origin + "/api/backend-health", {signal: AbortSignal.timeout(10000)});
+    const health = await response.json();
+    if (!response.ok || !health.configured || !health.reachable || !health.databaseReady)
+      throw new Error("Gateway could not reach the application/database");
+    console.log("Public homepage and backend health passed");
+    process.exit(0);
+  } catch (error) {
+    lastError = error;
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+}
+console.error(lastError);
+process.exit(1);
+'
+
+printf '%s\n' "$release" > "$state_dir/current-release"
+maintenance=false
+echo "Deployment succeeded: $release. Backup: $backup_dir"
