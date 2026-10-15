@@ -14,6 +14,7 @@ interface SyncManagerLike {
   getTags?(): Promise<string[]>;
 }
 
+
 type RegistrationWithSync =
   ServiceWorkerRegistration & {
     sync?: SyncManagerLike;
