@@ -67,6 +67,7 @@ compose() {
 
 # Never print the expanded config: it contains secrets.
 compose config --quiet
+command -v curl > /dev/null || { echo 'Install curl on the VPS before deploying.' >&2; exit 1; }
 if [[ "$release" == local ]]; then
     compose build backend frontend
     compose pull db gateway
@@ -95,28 +96,10 @@ compose run --rm --no-deps backend python manage.py createcachetable
 compose run --rm --no-deps backend python manage.py collectstatic --noinput
 compose up -d --no-build --wait --wait-timeout 180 backend frontend gateway
 
-# Also test the public gateway: a healthy container alone cannot verify routing/TLS.
-compose exec -T frontend node --input-type=module -e '
-let lastError;
-for (let attempt = 0; attempt < 12; attempt++) {
-  try {
-    const origin = process.env.APP_ORIGIN;
-    const page = await fetch(origin + "/", {signal: AbortSignal.timeout(10000)});
-    if (!page.ok) throw new Error("Homepage HTTP " + page.status);
-    const response = await fetch(origin + "/api/backend-health", {signal: AbortSignal.timeout(10000)});
-    const health = await response.json();
-    if (!response.ok || !health.configured || !health.reachable || !health.databaseReady)
-      throw new Error("Gateway could not reach the application/database");
-    console.log("Public homepage and backend health passed");
-    process.exit(0);
-  } catch (error) {
-    lastError = error;
-    await new Promise(resolve => setTimeout(resolve, 5000));
-  }
-}
-console.error(lastError);
-process.exit(1);
-'
+# Check published ports from the VPS over loopback. Keep the public Host header
+# and TLS identity, without requiring public-IP hairpin routing or external DNS.
+# Expanded secrets stay in the pipe and are never logged by the checker.
+compose config --format json | python3 "$project_dir/deploy/check_gateway.py"
 
 printf '%s\n' "$release" > "$state_dir/current-release"
 maintenance=false
