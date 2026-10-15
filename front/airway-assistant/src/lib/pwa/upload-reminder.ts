@@ -388,7 +388,6 @@ function samePublicKey(
   );
 }
 
-
 async function setupPushInternal():
   Promise<PushSetupResult> {
   if (!notificationsAvailable()) {
