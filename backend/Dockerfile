@@ -5,11 +5,26 @@ COPY requirements.txt .
 RUN python -m venv /opt/venv && /opt/venv/bin/pip install -r requirements.txt
 
 FROM python:3.14-slim-trixie AS runtime
+ARG DEBIAN_MIRROR=https://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=https://security.debian.org/debian-security
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 # Trixie supplies PostgreSQL 17 client tools, matching the Compose database.
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 \
+# Host APT settings and Docker Hub registry mirrors do not affect image builds.
+# Keep Debian's Signed-By keyring and suites when changing only repository URLs.
+RUN python - <<'PY'
+import os
+from pathlib import Path
+
+sources = Path('/etc/apt/sources.list.d/debian.sources')
+text = sources.read_text()
+text = text.replace('http://deb.debian.org/debian-security', os.environ['DEBIAN_SECURITY_MIRROR'].rstrip('/'))
+text = text.replace('http://deb.debian.org/debian', os.environ['DEBIAN_MIRROR'].rstrip('/'))
+sources.write_text(text)
+PY
+RUN apt-get update -o APT::Update::Error-Mode=any \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 airway \
     && useradd --uid 10001 --gid airway --no-create-home airway \

@@ -125,6 +125,47 @@ Generate hex secrets as shown above to avoid quoting issues.
 
 ## 2. First deployment, without a domain
 
+If the build times out at `deb.debian.org` and then reports `Unable to locate
+package postgresql-client-17`, the missing APT indexes are the cause. The
+Ubuntu host's APT mirror and the Docker Hub mirror do not configure the Debian
+repositories inside the Python image. The backend accepts separate build mirror
+settings. To use ParsVDS for the main Debian repository, run on the VPS as root:
+
+```sh
+python3 - <<'PY'
+from pathlib import Path
+import shutil
+import time
+
+path = Path('/etc/airway/compose.env')
+original = path.read_text()
+shutil.copy2(path, f'{path}.before-build-mirrors-{time.time_ns()}')
+values = {
+    'DEBIAN_MIRROR': 'https://mirror.parsvds.com/debian',
+    'DEBIAN_SECURITY_MIRROR': 'https://security.debian.org/debian-security',
+}
+lines = [line for line in original.splitlines() if line.partition('=')[0] not in values]
+lines.extend(f'{key}={value}' for key, value in values.items())
+path.write_text('\n'.join(lines) + '\n')
+PY
+```
+
+This preserves the existing app settings, secrets and file permissions. Check
+reachability from the VPS before retrying the build:
+
+```sh
+curl -fsSL --connect-timeout 10 --max-time 30 \
+  https://mirror.parsvds.com/debian/dists/trixie/InRelease -o /dev/null &&
+curl -fsSL --connect-timeout 10 --max-time 30 \
+  https://security.debian.org/debian-security/dists/trixie-security/InRelease -o /dev/null &&
+echo 'Both Debian repositories are reachable'
+```
+
+ParsVDS's advertised `/debian-security/` endpoint returned 404 when checked;
+keep the official security repository over HTTPS unless an accessible alternative
+is verified. Debian's package signature checks stay enabled. APT index failures
+now stop the build immediately instead of continuing with missing indexes.
+
 Leave `SITE_ADDRESS=:80`, `DJANGO_COOKIE_SECURE=0`, and `HSTS_SECONDS=0` for
 temporary HTTP testing. `APP_ORIGIN` must be `http://YOUR_SERVER_IP`, with no
 trailing slash. From the checkout, as a user with Docker access:

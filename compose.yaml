@@ -5,6 +5,9 @@ x-backend: &backend
   build:
     context: .
     dockerfile: backend/Dockerfile
+    args:
+      DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://deb.debian.org/debian}
+      DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://security.debian.org/debian-security}
   environment:
     DJANGO_DEBUG: "0"
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in the Compose env file}
