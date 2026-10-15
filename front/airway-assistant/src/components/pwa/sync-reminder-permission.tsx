@@ -9,332 +9,346 @@ import {
   BellRing,
   CheckCircle2,
   LoaderCircle,
+  Send,
 } from "lucide-react";
 
 import {
+  ensureWebPushSubscription,
   getNotificationPermission,
-  notificationsAvailable,
+  preloadPushConfiguration,
   registerUploadReminderSync,
   requestNotificationPermission,
-  showLocalTestNotification,
+  sendRealPushTest,
+  type PushSetupResult,
 } from "@/lib/pwa/upload-reminder";
-
 
 type PermissionState =
   | "checking"
   | "unsupported"
   | "default"
-  | "granted"
-  | "denied";
-
+  | "denied"
+  | "granted";
 
 export function SyncReminderPermission() {
-  const [
-    permission,
-    setPermission,
-  ] =
-    useState<PermissionState>(
-      "checking",
-    );
+  const [permission, setPermission] =
+    useState<PermissionState>("checking");
 
-  const [
-    loading,
-    setLoading,
-  ] =
+  const [pushState, setPushState] =
+    useState<PushSetupResult | null>(null);
+
+  const [loading, setLoading] =
     useState(false);
 
+  const [testing, setTesting] =
+    useState(false);
 
+  const [feedback, setFeedback] =
+    useState<string | null>(null);
 
-    
+  const [testSucceeded, setTestSucceeded] =
+    useState(false);
+
   useEffect(() => {
-    if (
-      !notificationsAvailable()
-    ) {
-      setPermission(
-        "unsupported",
-      );
+    let active = true;
 
-      return;
+    async function updateExistingPermission() {
+      const current = getNotificationPermission();
+
+      if (!active) return;
+
+      setPermission(current);
+
+      if (current !== "granted") {
+        return;
+      }
+
+      /*
+       * A previously granted permission does not
+       * require another user permission prompt.
+       */
+      const result =
+        await ensureWebPushSubscription();
+
+      if (active) {
+        setPushState(result);
+      }
     }
 
-    const current =
-      getNotificationPermission();
+    void preloadPushConfiguration();
+    void updateExistingPermission();
 
-    if (
-      current ===
-      "unsupported"
-    ) {
-      setPermission(
-        "unsupported",
+    const onOnline = () => {
+      void updateExistingPermission();
+    };
+
+    const onControllerChange = () => {
+      void updateExistingPermission();
+    };
+
+    window.addEventListener("online", onOnline);
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        onControllerChange,
       );
-
-      return;
     }
 
-    setPermission(
-      current,
-    );
+    return () => {
+      active = false;
+
+      window.removeEventListener(
+        "online",
+        onOnline,
+      );
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          onControllerChange,
+        );
+      }
+    };
   }, []);
 
-
-  
   async function handleEnable() {
-    if (
-      loading
-    ) {
-      return;
-    }
+    if (loading) return;
+
+    setLoading(true);
+    setFeedback(null);
+    setTestSucceeded(false);
 
     try {
-      setLoading(
-        true,
-      );
-
-
-      
+      /*
+       * Must be called directly after a user click.
+       */
       const result =
         await requestNotificationPermission();
 
-      if (
-        result ===
-        "unsupported"
-      ) {
-        setPermission(
-          "unsupported",
-        );
+      setPermission(result);
 
+      if (result !== "granted") {
         return;
       }
 
-      setPermission(
-        result,
-      );
+      /*
+       * Complete Push subscription first.
+       * Do not show a fake success just because
+       * browser notification permission is granted.
+       */
+      const setup =
+        await ensureWebPushSubscription();
 
-      if (
-        result !==
-        "granted"
-      ) {
-        return;
-      }
+      setPushState(setup);
 
-
-      
+      /*
+       * Background Sync is an optional reminder
+       * mechanism, not a condition for photo uploads.
+       */
       await registerUploadReminderSync();
+    } catch {
+      setPushState("pending");
 
-      
-      
-      await showLocalTestNotification();
-    } catch (
-      error
-    ) {
-      console.warn(
-        "Unable to enable notifications:",
-        error,
+      setFeedback(
+        "فعال‌سازی کامل نشد. دوباره تلاش کنید.",
       );
     } finally {
-      setLoading(
-        false,
-      );
+      setLoading(false);
     }
   }
 
+  async function handleRealTest() {
+    if (testing) return;
 
-  
-  if (
-    permission ===
-      "checking" ||
-    permission ===
-      "unsupported"
-  ) {
+    setTesting(true);
+    setFeedback(null);
+    setTestSucceeded(false);
+
+    try {
+      const result = await sendRealPushTest();
+
+      setTestSucceeded(result.ok);
+      setFeedback(result.message);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  if (permission === "checking") {
     return null;
   }
 
-
-  
-  if (
-    permission ===
-    "granted"
-  ) {
+  if (permission === "unsupported") {
     return (
-      <section
-        className="
-          mt-4
-          flex
-          items-start
-          gap-3
-          rounded-2xl
-          border
-          border-emerald-100
-          bg-emerald-50
-          p-4
-        "
-      >
-        <div
-          className="
-            flex
-            size-10
-            shrink-0
-            items-center
-            justify-center
-            rounded-xl
-            bg-white
-            text-emerald-700
-          "
-        >
-          <CheckCircle2
-            size={20}
-          />
-        </div>
+      <section className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-bold text-amber-900">
+          اعلان واقعی هنوز در این محیط در دسترس نیست
+        </p>
 
-        <div
-          className="
-            min-w-0
-            flex-1
-          "
-        >
-          <p
-            className="
-              text-sm
-              font-bold
-              text-emerald-900
-            "
-          >
-            یادآوری‌ها فعال هستند
-          </p>
-
-          <p
-            className="
-              mt-1
-              text-xs
-              leading-6
-              text-emerald-800
-            "
-          >
-            در صورت نیاز، برنامه
-            می‌تواند برای موارد در انتظار
-            ارسال به شما یادآوری کند.
-          </p>
-        </div>
+        <p className="mt-2 text-xs leading-6 text-amber-800">
+          برای فعال شدن Web Push، برنامه را با HTTPS
+          باز کنید. روی آیفون باید برنامه به Home Screen
+          اضافه شده باشد. ثبت بیمار، ذخیره عکس و صف
+          ارسال به اجازه اعلان وابسته نیستند.
+        </p>
       </section>
     );
   }
 
+  if (permission === "denied") {
+    return (
+      <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-sm font-bold text-slate-900">
+          اجازه اعلان‌ها مسدود شده است
+        </p>
 
-  
-  if (
-    permission ===
-    "denied"
-  ) {
-
-    
-    return null;
+        <p className="mt-2 text-xs leading-6 text-slate-600">
+          اجازه Notification را در تنظیمات مرورگر
+          یا گوشی فعال کنید. برنامه بدون اعلان هم
+          می‌تواند عکس‌ها را ارسال کند.
+        </p>
+      </section>
+    );
   }
 
+  const activated =
+    permission === "granted" &&
+    pushState === "active";
 
+  function description() {
+    if (permission === "default") {
+      return (
+        "برای دریافت یادآوری ارسال، اجازه اعلان‌ها را " +
+        "فعال کنید. این مجوز اختیاری است."
+      );
+    }
 
-  
+    switch (pushState) {
+      case "active":
+        return (
+          "اشتراک این دستگاه در Django ثبت شده است. " +
+          "برای تأیید ارسال واقعی، دکمه تست را بزنید."
+        );
+
+      case "offline":
+        return (
+          "مجوز اعلان صادر شده است. بعد از وصل شدن " +
+          "اینترنت، ثبت اشتراک تکمیل می‌شود."
+        );
+
+      case "not-configured":
+        return (
+          "مجوز اعلان صادر شده، ولی کلیدهای VAPID " +
+          "هنوز روی Backend تنظیم نشده‌اند."
+        );
+
+      case "device-error":
+        return (
+          "ثبت اعلان با خطای اتصال Device مواجه شد. " +
+          "ابتدا باید اتصال همین نصب به سرور بررسی شود."
+        );
+
+      case "unsupported":
+        return (
+          "این مرورگر از Push API پشتیبانی نمی‌کند " +
+          "یا برنامه هنوز به‌درستی نصب نشده است."
+        );
+
+      default:
+        return (
+          "مجوز اعلان صادر شده، اما اتصال آن به " +
+          "سرور کامل نیست. دوباره تلاش کنید."
+        );
+    }
+  }
+
   return (
     <section
-      className="
-        mt-4
-        rounded-2xl
-        border
-        border-sky-100
-        bg-sky-50
-        p-4
-      "
+      className={`mt-4 rounded-2xl border p-4 ${
+        activated
+          ? "border-emerald-200 bg-emerald-50"
+          : "border-sky-200 bg-sky-50"
+      }`}
     >
-      <div
-        className="
-          flex
-          items-start
-          gap-3
-        "
-      >
-        <div
-          className="
-            flex
-            size-10
-            shrink-0
-            items-center
-            justify-center
-            rounded-xl
-            bg-white
-            text-sky-700
-          "
-        >
-          <BellRing
-            size={20}
-          />
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-sky-700">
+          {activated ? (
+            <CheckCircle2 size={21} />
+          ) : (
+            <BellRing size={21} />
+          )}
         </div>
 
-        <div
-          className="
-            min-w-0
-            flex-1
-          "
-        >
-          <p
-            className="
-              text-sm
-              font-bold
-              text-slate-900
-            "
-          >
-            فعال‌سازی یادآوری
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-bold text-slate-900">
+            {activated
+              ? "Web Push دستگاه فعال است"
+              : permission === "granted"
+                ? "تکمیل اتصال اعلان‌ها"
+                : "فعال‌سازی اعلان‌های ارسال"}
+          </h3>
+
+          <p className="mt-2 text-xs leading-6 text-slate-600">
+            {description()}
           </p>
 
-          <p
-            className="
-              mt-1
-              text-xs
-              leading-6
-              text-slate-600
-            "
-          >
-            با فعال‌کردن اعلان‌ها،
-            می‌توانیم برای مواردی که
-            هنوز ارسال نشده‌اند به شما
-            یادآوری کنیم.
-          </p>
+          {!activated && (
+            <button
+              type="button"
+              onClick={() => void handleEnable()}
+              disabled={loading}
+              className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {loading && (
+                <LoaderCircle
+                  size={16}
+                  className="animate-spin"
+                />
+              )}
 
-          <button
-            type="button"
-            disabled={
-              loading
-            }
-            onClick={() =>
-              void handleEnable()
-            }
-            className="
-              mt-3
-              flex
-              min-h-10
-              items-center
-              justify-center
-              gap-2
-              rounded-xl
-              bg-sky-700
-              px-4
-              text-xs
-              font-bold
-              text-white
-              disabled:opacity-60
-            "
-          >
-            {loading && (
-              <LoaderCircle
-                size={15}
-                className="
-                  animate-spin
-                "
-              />
-            )}
+              {permission === "granted"
+                ? "تکمیل اتصال به سرور"
+                : "اجازه دادن به اعلان‌ها"}
+            </button>
+          )}
 
-            اجازه اعلان‌ها
-          </button>
+          {activated && (
+            <button
+              type="button"
+              onClick={() => void handleRealTest()}
+              disabled={testing}
+              className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {testing ? (
+                <LoaderCircle
+                  size={16}
+                  className="animate-spin"
+                />
+              ) : (
+                <Send size={16} />
+              )}
+
+              ارسال اعلان آزمایشی واقعی
+            </button>
+          )}
+
+          {feedback && (
+            <p
+              role="status"
+              aria-live="polite"
+              className={`mt-3 text-xs leading-6 ${
+                testSucceeded
+                  ? "text-emerald-800"
+                  : "text-amber-800"
+              }`}
+            >
+              {feedback}
+            </p>
+          )}
         </div>
       </div>
     </section>
   );
 }
+
+

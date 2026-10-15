@@ -71,7 +71,11 @@ type PhotosByKind =
     >
   >;
 
-export default function CapturePage() {
+export default function CapturePage({
+  caseIdOverride,
+}: {
+  caseIdOverride?: string;
+} = {}) {
   const params =
     useParams<{
       caseId:
@@ -82,7 +86,7 @@ export default function CapturePage() {
     useRouter();
 
   const caseId =
-    params.caseId;
+    caseIdOverride ?? params.caseId;
 
   const previewUrlsRef =
     useRef<
@@ -737,14 +741,14 @@ export default function CapturePage() {
         result.state ===
         "synced"
       ) {
-        router.replace(
+        window.location.replace(
           "/cases",
         );
 
         return;
       }
 
-      router.replace(
+      window.location.replace(
         "/queue",
       );
     } catch (
@@ -1178,7 +1182,7 @@ export default function CapturePage() {
         <button
           type="button"
           onClick={() =>
-            router.push(
+            window.location.assign(
               "/queue",
             )
           }

@@ -23,6 +23,10 @@ import {
 } from "@/components/app-shell/network-pill";
 
 import {
+  SyncReminderPermission,
+} from "@/components/pwa/sync-reminder-permission";
+
+import {
   useConnectivity,
 } from "@/components/connectivity/connectivity-provider";
 
@@ -617,6 +621,8 @@ export default function QueuePage() {
           }
         </div>
       )}
+
+      <SyncReminderPermission />
 
       {/* Queue header */}
 

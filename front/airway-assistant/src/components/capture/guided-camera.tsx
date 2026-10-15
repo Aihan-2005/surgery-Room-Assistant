@@ -12,18 +12,14 @@ import {
   Camera,
   Check,
   ImagePlus,
+  LoaderCircle,
   RefreshCcw,
   RotateCcw,
   X,
 } from "lucide-react";
 
-import {
-  CameraGuide,
-} from "@/components/capture/camera-guide";
-
-import {
-  QualityFeedback,
-} from "@/components/capture/quality-feedback";
+import { CameraGuide } from "@/components/capture/camera-guide";
+import { QualityFeedback } from "@/components/capture/quality-feedback";
 
 import type {
   CaptureStep,
@@ -40,93 +36,83 @@ import type {
   PreparedImage,
 } from "@/lib/domain/types";
 
-type CameraFacingMode =
+type CameraStatus =
+  | "starting"
+  | "live"
+  | "fallback";
+
+type FacingMode =
   | "user"
   | "environment";
 
 interface GuidedCameraProps {
   step: CaptureStep;
-
   onClose: () => void;
-
-  onConfirm: (
-    image: PreparedImage,
-  ) => Promise<void>;
+  onConfirm: (image: PreparedImage) => Promise<void>;
 }
 
-const ANALYSIS_WIDTH = 160;
-
-const ANALYSIS_HEIGHT = 120;
-
-const ANALYSIS_INTERVAL =
-  650;
+const QUALITY_WIDTH = 160;
+const QUALITY_HEIGHT = 120;
+const QUALITY_INTERVAL_MS = 650;
 
 function toQualityMetrics(
-  quality:
-    | ImageQualityResult
-    | null,
+  quality: ImageQualityResult | null,
   file: File,
 ): ImageQualityMetrics {
-  const flags =
-    quality?.checks
-      .filter(
-        (check) =>
-          check.level !==
-          "good",
-      )
-      .map(
-        (check) =>
-          check.key,
-      ) ?? [];
+  const checks = quality?.checks ?? [];
 
   return {
-    width:
-      quality?.width,
-
-    height:
-      quality?.height,
-
-    fileSizeBytes:
-      file.size,
-
-    mimeType:
-      file.type,
-
-    brightness:
-      quality?.brightness,
-
-    meanBrightness:
-      quality?.brightness,
-
-    sharpness:
-      quality?.sharpness,
-
-    blurScore:
-      quality?.sharpness,
-
-    laplacianVariance:
-      quality?.sharpness,
-
-    overall:
-      quality?.overall ??
-      "unknown",
-
-    acceptable:
-      quality?.overall !==
-      "bad",
-
-    passed:
-      quality?.overall !==
-      "bad",
-
-    flags,
-
-    checks:
-      quality?.checks,
-
-    checkedAt:
-      new Date().toISOString(),
+    width: quality?.width,
+    height: quality?.height,
+    fileSizeBytes: file.size,
+    mimeType: file.type,
+    brightness: quality?.brightness,
+    meanBrightness: quality?.brightness,
+    sharpness: quality?.sharpness,
+    blurScore: quality?.sharpness,
+    laplacianVariance: quality?.sharpness,
+    overall: quality?.overall ?? "unknown",
+    acceptable: quality?.overall !== "bad",
+    passed: quality?.overall !== "bad",
+    flags: checks
+      .filter((check) => check.level !== "good")
+      .map((check) => check.key),
+    checks,
+    checkedAt: new Date().toISOString(),
   };
+}
+
+function explainCameraFailure(
+  error: unknown,
+): string {
+  if (!window.isSecureContext) {
+    return (
+      "برای پیش‌نمایش زنده دوربین در مرورگر، HTTPS لازم است. " +
+      "در نسخه HTTP از دکمه «گرفتن عکس با دوربین گوشی» استفاده کنید."
+    );
+  }
+
+  if (error instanceof DOMException) {
+    if (
+      error.name === "NotAllowedError" ||
+      error.name === "PermissionDeniedError"
+    ) {
+      return (
+        "دسترسی دوربین در مرورگر رد شده است. آن را در تنظیمات سایت " +
+        "فعال کنید و سپس «تلاش مجدد» را بزنید."
+      );
+    }
+
+    if (error.name === "NotFoundError") {
+      return "هیچ دوربینی شناسایی نشد. می‌توانید از گزینه دوربین گوشی استفاده کنید.";
+    }
+
+    if (error.name === "NotReadableError") {
+      return "دوربین در برنامه دیگری در حال استفاده است. آن برنامه را ببندید و دوباره تلاش کنید.";
+    }
+  }
+
+  return "پیش‌نمایش دوربین اجرا نشد. دوباره تلاش کنید یا دوربین گوشی را انتخاب کنید.";
 }
 
 export function GuidedCamera({
@@ -135,675 +121,552 @@ export function GuidedCamera({
   onConfirm,
 }: GuidedCameraProps) {
   const videoRef =
-    useRef<HTMLVideoElement | null>(
-      null,
-    );
+    useRef<HTMLVideoElement | null>(null);
 
-  const captureCanvasRef =
-    useRef<HTMLCanvasElement | null>(
-      null,
-    );
+  const photoCanvasRef =
+    useRef<HTMLCanvasElement | null>(null);
 
-  const analysisCanvasRef =
-    useRef<HTMLCanvasElement | null>(
-      null,
-    );
+  const qualityCanvasRef =
+    useRef<HTMLCanvasElement | null>(null);
 
   const streamRef =
-    useRef<MediaStream | null>(
-      null,
-    );
+    useRef<MediaStream | null>(null);
 
-  const [
-    facingMode,
-    setFacingMode,
-  ] =
-    useState<CameraFacingMode>(
-      "environment",
-    );
+  const requestIdRef = useRef(0);
 
-  const [
-    previewUrl,
-    setPreviewUrl,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  // Camera and gallery have separate file inputs.
+  const nativeCameraRef =
+    useRef<HTMLInputElement | null>(null);
 
-  const [
-    capturedFile,
-    setCapturedFile,
-  ] =
-    useState<File | null>(
-      null,
-    );
+  const galleryRef =
+    useRef<HTMLInputElement | null>(null);
 
-  const [
-    captureSource,
-    setCaptureSource,
-  ] =
-    useState<CaptureSource>(
-      "camera",
-    );
+  const [facingMode, setFacingMode] =
+    useState<FacingMode>("environment");
 
-  const [
-    cameraError,
-    setCameraError,
-  ] =
-    useState<string | null>(
-      null,
-    );
+  const [status, setStatus] =
+    useState<CameraStatus>("starting");
 
-  const [
-    startingCamera,
-    setStartingCamera,
-  ] =
-    useState(true);
+  const [message, setMessage] =
+    useState<string | null>(null);
 
-  const [
-    confirming,
-    setConfirming,
-  ] =
+  const [previewUrl, setPreviewUrl] =
+    useState<string | null>(null);
+
+  const [capturedFile, setCapturedFile] =
+    useState<File | null>(null);
+
+  const [captureSource, setCaptureSource] =
+    useState<CaptureSource>("unknown");
+
+  const [liveQuality, setLiveQuality] =
+    useState<ImageQualityResult | null>(null);
+
+  const [capturedQuality, setCapturedQuality] =
+    useState<ImageQualityResult | null>(null);
+
+  const [confirming, setConfirming] =
     useState(false);
 
-  const [
-    liveQuality,
-    setLiveQuality,
-  ] =
-    useState<ImageQualityResult | null>(
-      null,
-    );
+  const supportsLiveCamera =
+    typeof window !== "undefined" &&
+    window.isSecureContext &&
+    typeof navigator.mediaDevices?.getUserMedia === "function";
 
-  const [
-    capturedQuality,
-    setCapturedQuality,
-  ] =
-    useState<ImageQualityResult | null>(
-      null,
-    );
+  /* ------------------------------------------------------------------ */
+  /* Stop camera                                                        */
+  /* ------------------------------------------------------------------ */
 
-  const stopCamera =
-    useCallback(() => {
-      streamRef.current
-        ?.getTracks()
-        .forEach(
-          (track) => {
-            track.stop();
-          },
-        );
+  const stopCamera = useCallback(() => {
+    requestIdRef.current += 1;
 
-      streamRef.current =
-        null;
+    streamRef.current
+      ?.getTracks()
+      .forEach((track) => track.stop());
 
-      if (
-        videoRef.current
-      ) {
-        videoRef.current.srcObject =
-          null;
-      }
-    }, []);
+    streamRef.current = null;
 
-  const analyzeSource =
-    useCallback(
-      (
-        source:
-          CanvasImageSource,
-        sourceWidth: number,
-        sourceHeight: number,
-      ) => {
-        const canvas =
-          analysisCanvasRef.current;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
 
-        if (!canvas) {
-          return null;
-        }
+  /* ------------------------------------------------------------------ */
+  /* Image quality                                                       */
+  /* ------------------------------------------------------------------ */
 
-        canvas.width =
-          ANALYSIS_WIDTH;
+  const inspectImage = useCallback(
+    (
+      source: CanvasImageSource,
+      width: number,
+      height: number,
+    ) => {
+      const canvas = qualityCanvasRef.current;
 
-        canvas.height =
-          ANALYSIS_HEIGHT;
+      if (!canvas) return null;
 
-        const context =
-          canvas.getContext(
-            "2d",
-            {
-              willReadFrequently:
-                true,
-            },
-          );
+      canvas.width = QUALITY_WIDTH;
+      canvas.height = QUALITY_HEIGHT;
 
-        if (!context) {
-          return null;
-        }
+      const context = canvas.getContext("2d", {
+        willReadFrequently: true,
+      });
 
-        context.drawImage(
-          source,
-          0,
-          0,
-          ANALYSIS_WIDTH,
-          ANALYSIS_HEIGHT,
-        );
+      if (!context) return null;
 
-        const imageData =
-          context.getImageData(
-            0,
-            0,
-            ANALYSIS_WIDTH,
-            ANALYSIS_HEIGHT,
-          );
-
-        return analyzeImageData(
-          imageData,
-          sourceWidth,
-          sourceHeight,
-        );
-      },
-      [],
-    );
-
-  const analyzeFile =
-    useCallback(
-      (
-        file: File,
-      ): Promise<ImageQualityResult | null> => {
-        return new Promise(
-          (resolve) => {
-            const url =
-              URL.createObjectURL(
-                file,
-              );
-
-            const image =
-              new Image();
-
-            image.onload =
-              () => {
-                const result =
-                  analyzeSource(
-                    image,
-                    image.naturalWidth,
-                    image.naturalHeight,
-                  );
-
-                URL.revokeObjectURL(
-                  url,
-                );
-
-                resolve(
-                  result,
-                );
-              };
-
-            image.onerror =
-              () => {
-                URL.revokeObjectURL(
-                  url,
-                );
-
-                resolve(null);
-              };
-
-            image.src =
-              url;
-          },
-        );
-      },
-      [analyzeSource],
-    );
-
-  const startCamera =
-    useCallback(async () => {
-      stopCamera();
-
-      setStartingCamera(
-        true,
+      context.drawImage(
+        source,
+        0,
+        0,
+        QUALITY_WIDTH,
+        QUALITY_HEIGHT,
       );
 
-      setCameraError(null);
+      return analyzeImageData(
+        context.getImageData(
+          0,
+          0,
+          QUALITY_WIDTH,
+          QUALITY_HEIGHT,
+        ),
+        width,
+        height,
+      );
+    },
+    [],
+  );
 
-      setLiveQuality(null);
+  const inspectFile = useCallback(
+    (file: File): Promise<ImageQualityResult | null> =>
+      new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        const image = new Image();
 
-      try {
-        if (
-          !navigator
-            .mediaDevices
-            ?.getUserMedia
-        ) {
-          throw new Error(
-            "MEDIA_DEVICES_UNAVAILABLE",
-          );
-        }
-
-        const stream =
-          await navigator.mediaDevices.getUserMedia(
-            {
-              audio: false,
-
-              video: {
-                facingMode: {
-                  ideal:
-                    facingMode,
-                },
-
-                width: {
-                  ideal: 1920,
-                },
-
-                height: {
-                  ideal: 1080,
-                },
-              },
-            },
+        image.onload = () => {
+          const result = inspectImage(
+            image,
+            image.naturalWidth,
+            image.naturalHeight,
           );
 
-        streamRef.current =
-          stream;
+          URL.revokeObjectURL(url);
+          resolve(result);
+        };
 
-        if (
-          videoRef.current
-        ) {
-          videoRef.current.srcObject =
-            stream;
+        image.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(null);
+        };
 
-          await videoRef.current.play();
-        }
-      } catch (error) {
-        console.error(
-          "Camera error:",
-          error,
-        );
+        image.src = url;
+      }),
+    [inspectImage],
+  );
 
-        setCameraError(
-          "دسترسی مستقیم به دوربین ممکن نیست. دسترسی Camera مرورگر را بررسی کنید یا از انتخاب تصویر استفاده کنید.",
-        );
-      } finally {
-        setStartingCamera(
-          false,
-        );
+  /* ------------------------------------------------------------------ */
+  /* Live camera                                                        */
+  /* ------------------------------------------------------------------ */
+
+  const startLiveCamera = useCallback(async () => {
+    stopCamera();
+
+    const requestId = requestIdRef.current;
+
+    setStatus("starting");
+    setMessage(null);
+    setLiveQuality(null);
+
+    try {
+      if (
+        !window.isSecureContext ||
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        throw new Error("SECURE_CONTEXT_REQUIRED");
       }
-    }, [
-      facingMode,
-      stopCamera,
-    ]);
+
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: {
+              ideal: facingMode,
+            },
+            width: {
+              ideal: 1920,
+            },
+            height: {
+              ideal: 1080,
+            },
+          },
+        });
+
+      if (requestId !== requestIdRef.current) {
+        stream.getTracks().forEach(
+          (track) => track.stop(),
+        );
+        return;
+      }
+
+      streamRef.current = stream;
+
+      const video = videoRef.current;
+
+      if (!video) {
+        throw new Error("VIDEO_NOT_READY");
+      }
+
+      video.srcObject = stream;
+
+      await video.play();
+
+      if (requestId === requestIdRef.current) {
+        setStatus("live");
+      }
+    } catch (error) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      stopCamera();
+
+      setMessage(
+        explainCameraFailure(error),
+      );
+
+      setStatus("fallback");
+    }
+  }, [facingMode, stopCamera]);
+
+  /* ------------------------------------------------------------------ */
+  /* Initial camera activation                                          */
+  /* ------------------------------------------------------------------ */
 
   useEffect(() => {
-    void startCamera();
+    if (supportsLiveCamera) {
+      void startLiveCamera();
+    } else {
+      setStatus("fallback");
+      setMessage(
+        "روی HTTP، مرورگر اجازه دوربین زنده داخل برنامه نمی‌دهد. " +
+          "از دکمه گرفتن عکس با دوربین گوشی استفاده کنید.",
+      );
+    }
 
-    return () => {
-      stopCamera();
-    };
+    return () => stopCamera();
   }, [
-    startCamera,
+    supportsLiveCamera,
+    startLiveCamera,
     stopCamera,
   ]);
 
+  /* ------------------------------------------------------------------ */
+  /* Live quality analysis                                              */
+  /* ------------------------------------------------------------------ */
+
   useEffect(() => {
-    if (
-      previewUrl ||
-      cameraError ||
-      startingCamera
-    ) {
+    if (status !== "live" || previewUrl) {
       return;
     }
 
-    let timeout:
-      number | undefined;
+    const timer = window.setInterval(() => {
+      const video = videoRef.current;
 
-    const checkFrame =
-      () => {
-        const video =
-          videoRef.current;
-
-        if (
-          video &&
-          video.readyState >=
-            HTMLMediaElement.HAVE_CURRENT_DATA &&
-          video.videoWidth >
-            0 &&
-          video.videoHeight >
-            0
-        ) {
-          setLiveQuality(
-            analyzeSource(
-              video,
-              video.videoWidth,
-              video.videoHeight,
-            ),
-          );
-        }
-
-        timeout =
-          window.setTimeout(
-            checkFrame,
-            ANALYSIS_INTERVAL,
-          );
-      };
-
-    timeout =
-      window.setTimeout(
-        checkFrame,
-        400,
-      );
-
-    return () => {
       if (
-        timeout !==
-        undefined
+        video &&
+        video.readyState >=
+          HTMLMediaElement.HAVE_CURRENT_DATA &&
+        video.videoWidth > 0 &&
+        video.videoHeight > 0
       ) {
-        window.clearTimeout(
-          timeout,
+        setLiveQuality(
+          inspectImage(
+            video,
+            video.videoWidth,
+            video.videoHeight,
+          ),
         );
       }
-    };
+    }, QUALITY_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
   }, [
-    analyzeSource,
-    cameraError,
+    status,
     previewUrl,
-    startingCamera,
+    inspectImage,
   ]);
+
+  /* ------------------------------------------------------------------ */
+  /* Preview cleanup                                                    */
+  /* ------------------------------------------------------------------ */
 
   useEffect(() => {
     return () => {
       if (previewUrl) {
-        URL.revokeObjectURL(
-          previewUrl,
-        );
+        URL.revokeObjectURL(previewUrl);
       }
     };
   }, [previewUrl]);
 
+  /* ------------------------------------------------------------------ */
+  /* Actions                                                            */
+  /* ------------------------------------------------------------------ */
+
+  function openNativeCamera() {
+    // Executed directly from a user click.
+    nativeCameraRef.current?.click();
+  }
+
+  function openGallery() {
+    galleryRef.current?.click();
+  }
+
   function handleClose() {
     stopCamera();
-
     onClose();
   }
 
-  function handleSwitchCamera() {
-    if (previewUrl) {
+  function switchCamera() {
+    if (previewUrl || status !== "live") {
       return;
     }
 
-    setFacingMode(
-      (current) =>
-        current ===
-        "environment"
-          ? "user"
-          : "environment",
+    setFacingMode((current) =>
+      current === "environment"
+        ? "user"
+        : "environment",
     );
   }
 
-  async function captureFrame() {
-    const video =
-      videoRef.current;
+  /* ------------------------------------------------------------------ */
+  /* Capture live frame                                                 */
+  /* ------------------------------------------------------------------ */
 
-    const canvas =
-      captureCanvasRef.current;
+  async function captureLiveFrame() {
+    const video = videoRef.current;
+    const canvas = photoCanvasRef.current;
 
     if (
       !video ||
-      !canvas
+      !canvas ||
+      !video.videoWidth ||
+      !video.videoHeight
     ) {
-      return;
-    }
-
-    const width =
-      video.videoWidth;
-
-    const height =
-      video.videoHeight;
-
-    if (
-      !width ||
-      !height
-    ) {
-      setCameraError(
+      setMessage(
         "تصویر دوربین هنوز آماده نیست.",
       );
 
       return;
     }
 
-    canvas.width =
-      width;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
-    canvas.height =
-      height;
+    const context = canvas.getContext("2d");
 
-    const context =
-      canvas.getContext(
-        "2d",
-      );
-
-    if (!context) {
-      return;
-    }
+    if (!context) return;
 
     context.drawImage(
       video,
       0,
       0,
-      width,
-      height,
+      canvas.width,
+      canvas.height,
     );
 
-    const quality =
-      analyzeSource(
-        canvas,
-        width,
-        height,
-      );
+    const quality = inspectImage(
+      canvas,
+      canvas.width,
+      canvas.height,
+    );
 
     const blob =
-      await new Promise<Blob | null>(
-        (resolve) => {
-          canvas.toBlob(
-            resolve,
-            "image/jpeg",
-            0.92,
-          );
-        },
-      );
+      await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(
+          resolve,
+          "image/jpeg",
+          0.92,
+        );
+      });
 
     if (!blob) {
-      setCameraError(
-        "ثبت تصویر انجام نشد.",
+      setMessage(
+        "گرفتن عکس انجام نشد. دوباره تلاش کنید.",
       );
-
       return;
     }
 
-    const file =
+    setCapturedFile(
       new File(
         [blob],
         `${step.kind}-${Date.now()}.jpg`,
         {
-          type:
-            "image/jpeg",
+          type: "image/jpeg",
         },
-      );
-
-    setCaptureSource(
-      "camera",
-    );
-
-    setCapturedFile(
-      file,
-    );
-
-    setCapturedQuality(
-      quality,
-    );
-
-    setPreviewUrl(
-      URL.createObjectURL(
-        blob,
       ),
+    );
+
+    setCaptureSource("camera");
+    setCapturedQuality(quality);
+    setPreviewUrl(
+      URL.createObjectURL(blob),
     );
 
     stopCamera();
   }
 
-  async function handleFileInput(
-    event:
-      ChangeEvent<HTMLInputElement>,
+  /* ------------------------------------------------------------------ */
+  /* Native camera / gallery                                            */
+  /* ------------------------------------------------------------------ */
+
+  async function handleFileSelected(
+    event: ChangeEvent<HTMLInputElement>,
+    source: CaptureSource,
   ) {
     const file =
-      event.target
-        .files?.[0];
+      event.currentTarget.files?.[0];
 
-    event.target.value =
-      "";
+    event.currentTarget.value = "";
 
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
-    if (
-      !file.type.startsWith(
-        "image/",
-      )
-    ) {
-      setCameraError(
+    if (!file.type.startsWith("image/")) {
+      setMessage(
         "فایل انتخاب‌شده تصویر نیست.",
       );
-
       return;
     }
-
-    setCaptureSource(
-      "gallery",
-    );
-
-    setCapturedFile(
-      file,
-    );
-
-    setCapturedQuality(
-      null,
-    );
-
-    setPreviewUrl(
-      URL.createObjectURL(
-        file,
-      ),
-    );
 
     stopCamera();
 
-    const quality =
-      await analyzeFile(
-        file,
-      );
+    setCapturedFile(file);
+    setCaptureSource(source);
+    setCapturedQuality(null);
+    setPreviewUrl(
+      URL.createObjectURL(file),
+    );
+    setMessage(null);
 
     setCapturedQuality(
-      quality,
+      await inspectFile(file),
     );
   }
 
-  async function handleRetake() {
-    if (previewUrl) {
-      URL.revokeObjectURL(
-        previewUrl,
-      );
-    }
+  /* ------------------------------------------------------------------ */
+  /* Retake photo                                                        */
+  /* ------------------------------------------------------------------ */
 
-    setPreviewUrl(null);
+  function retakePhoto() {
+    if (supportsLiveCamera) {
+      setPreviewUrl(null);
+      setCapturedFile(null);
+      setCapturedQuality(null);
 
-    setCapturedFile(null);
-
-    setCapturedQuality(
-      null,
-    );
-
-    setCaptureSource(
-      "camera",
-    );
-
-    await startCamera();
-  }
-
-  async function handleConfirm() {
-    if (!capturedFile) {
+      void startLiveCamera();
       return;
     }
 
-    const preparedImage:
-      PreparedImage = {
-      file:
+    // Preserve the old photo if native capture is cancelled.
+    openNativeCamera();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Confirm photo                                                       */
+  /* ------------------------------------------------------------------ */
+
+  async function confirmPhoto() {
+    if (!capturedFile || confirming) {
+      return;
+    }
+
+    const prepared: PreparedImage = {
+      file: capturedFile,
+      source: captureSource,
+      qc: toQualityMetrics(
+        capturedQuality,
         capturedFile,
-
-      source:
-        captureSource,
-
-      qc:
-        toQualityMetrics(
-          capturedQuality,
-          capturedFile,
-        ),
+      ),
     };
 
     try {
-      setConfirming(
-        true,
-      );
+      setConfirming(true);
 
-      await onConfirm(
-        preparedImage,
-      );
+      await onConfirm(prepared);
 
       handleClose();
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Photo save failed:",
+        error,
+      );
 
-      setCameraError(
-        "ذخیره تصویر انجام نشد.",
+      setMessage(
+        "ذخیره عکس انجام نشد. دوباره تلاش کنید.",
       );
     } finally {
-      setConfirming(
-        false,
-      );
+      setConfirming(false);
     }
   }
 
-  const displayedQuality =
-    previewUrl
-      ? capturedQuality
-      : liveQuality;
+  /* ------------------------------------------------------------------ */
+  /* UI                                                                 */
+  /* ------------------------------------------------------------------ */
 
   return (
     <div
       className="
-        fixed
-        inset-0
-        z-[100]
-        flex
-        flex-col
-        bg-black
-        text-white
+        fixed inset-0 z-[100]
+        flex flex-col
+        bg-black text-white
       "
     >
+      {/* Dedicated native camera input */}
+
+      <input
+        ref={nativeCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        aria-label="گرفتن عکس با دوربین گوشی"
+        onChange={(event) =>
+          void handleFileSelected(
+            event,
+            "unknown",
+          )
+        }
+      />
+
+      {/* Separate gallery input */}
+
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*"
+        className="sr-only"
+        aria-label="انتخاب تصویر از گالری"
+        onChange={(event) =>
+          void handleFileSelected(
+            event,
+            "gallery",
+          )
+        }
+      />
+
+      {/* Header */}
+
       <header
         className="
-          absolute
-          left-0
-          right-0
-          top-0
-          z-30
+          absolute inset-x-0 top-0 z-30
           bg-gradient-to-b
-          from-black/85
-          to-transparent
-          px-4
-          pb-10
+          from-black/85 to-transparent
+          px-4 pb-10
           pt-[calc(env(safe-area-inset-top)+12px)]
         "
       >
         <div
           className="
-            flex
-            items-start
-            justify-between
-            gap-4
+            flex items-start
+            justify-between gap-4
           "
         >
           <div>
@@ -818,17 +681,12 @@ export function GuidedCamera({
 
           <button
             type="button"
+            onClick={handleClose}
             aria-label="بستن دوربین"
-            onClick={
-              handleClose
-            }
             className="
-              flex
-              size-11
-              items-center
-              justify-center
-              rounded-full
-              bg-black/40
+              flex size-11
+              items-center justify-center
+              rounded-full bg-black/40
             "
           >
             <X size={22} />
@@ -836,23 +694,21 @@ export function GuidedCamera({
         </div>
       </header>
 
+      {/* Camera / preview */}
+
       <div
         className="
-          relative
-          flex-1
-          overflow-hidden
-          bg-black
+          relative flex-1
+          overflow-hidden bg-black
         "
       >
         {previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={previewUrl}
-            alt="پیش‌نمایش تصویر"
+            alt="پیش‌نمایش عکس"
             className="
-              h-full
-              w-full
-              object-contain
+              h-full w-full object-contain
             "
           />
         ) : (
@@ -862,340 +718,348 @@ export function GuidedCamera({
             muted
             playsInline
             className="
-              h-full
-              w-full
-              object-cover
+              h-full w-full object-cover
             "
           />
         )}
 
         {!previewUrl &&
-          !cameraError &&
-          !startingCamera && (
-            <CameraGuide
-              step={step}
-            />
+          status === "live" && (
+            <CameraGuide step={step} />
           )}
 
-        {!cameraError && (
+        {(previewUrl ||
+          status === "live") && (
           <div
             className="
               absolute
-              bottom-4
-              left-4
-              right-4
+              bottom-4 left-4 right-4
               z-20
             "
           >
             <QualityFeedback
               quality={
-                displayedQuality
+                previewUrl
+                  ? capturedQuality
+                  : liveQuality
               }
             />
           </div>
         )}
 
-        {startingCamera &&
-          !previewUrl && (
+        {/* Camera permission loading */}
+
+        {!previewUrl &&
+          status === "starting" && (
             <div
               className="
-                absolute
-                inset-0
-                z-40
-                flex
-                items-center
-                justify-center
-                bg-black/60
+                absolute inset-0 z-40
+                flex items-center justify-center
+                bg-black/80 p-6 text-center
               "
             >
-              <div className="text-center">
-                <RefreshCcw
-                  className="mx-auto animate-spin"
-                  size={28}
+              <div>
+                <LoaderCircle
+                  size={29}
+                  className="
+                    mx-auto animate-spin
+                  "
                 />
 
-                <p className="mt-3 text-sm text-white/80">
-                  در حال فعال‌کردن
-                  دوربین...
+                <p
+                  className="
+                    mt-3 text-sm leading-7
+                  "
+                >
+                  در حال درخواست اجازه دوربین...
+                </p>
+
+                <p
+                  className="
+                    text-xs leading-6
+                    text-white/60
+                  "
+                >
+                  اگر پیام مرورگر نمایش داده شد،
+                  «اجازه دادن» را انتخاب کنید.
                 </p>
               </div>
             </div>
           )}
 
-        {cameraError &&
-          !previewUrl && (
+        {/* HTTP fallback / camera errors */}
+
+        {!previewUrl &&
+          status === "fallback" && (
             <div
               className="
-                absolute
-                inset-0
-                flex
-                items-center
-                justify-center
-                px-6
+                absolute inset-0 z-30
+                flex items-center justify-center
+                overflow-y-auto px-5 pb-10 pt-28
               "
             >
               <div
                 className="
-                  max-w-sm
-                  rounded-3xl
-                  bg-white
-                  p-6
-                  text-center
-                  text-slate-900
+                  w-full max-w-sm
+                  rounded-3xl bg-white p-5
+                  text-center text-slate-900
                 "
               >
                 <Camera
-                  className="mx-auto text-slate-400"
                   size={36}
+                  className="
+                    mx-auto text-sky-700
+                  "
                 />
 
-                <p className="mt-4 text-sm font-bold">
-                  دوربین در دسترس نیست
-                </p>
-
-                <p className="mt-2 text-xs leading-6 text-slate-500">
-                  {cameraError}
-                </p>
-
-                <label
+                <h3
                   className="
-                    mt-5
-                    flex
-                    min-h-12
-                    cursor-pointer
-                    items-center
-                    justify-center
-                    gap-2
-                    rounded-2xl
-                    bg-sky-700
-                    px-4
-                    text-sm
-                    font-bold
-                    text-white
+                    mt-3 text-base font-bold
                   "
                 >
-                  <ImagePlus
-                    size={18}
-                  />
+                  گرفتن عکس با دوربین گوشی
+                </h3>
 
-                  انتخاب تصویر
+                <p
+                  className="
+                    mt-2 text-sm leading-7
+                    text-slate-600
+                  "
+                >
+                  {message}
+                </p>
 
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={
-                      handleFileInput
+                {supportsLiveCamera && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void startLiveCamera()
                     }
-                  />
-                </label>
+                    className="
+                      mt-4 flex min-h-12 w-full
+                      items-center justify-center gap-2
+                      rounded-2xl bg-sky-700 px-4
+                      text-sm font-bold text-white
+                    "
+                  >
+                    <RefreshCcw size={18} />
+                    تلاش دوباره برای دوربین زنده
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={openNativeCamera}
+                  className="
+                    mt-4 flex min-h-12 w-full
+                    items-center justify-center gap-2
+                    rounded-2xl bg-emerald-600 px-4
+                    text-sm font-bold text-white
+                  "
+                >
+                  <Camera size={19} />
+                  گرفتن عکس با دوربین گوشی
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openGallery}
+                  className="
+                    mt-3 flex min-h-12 w-full
+                    items-center justify-center gap-2
+                    rounded-2xl border
+                    border-slate-300 bg-white
+                    px-4 text-sm font-bold
+                    text-slate-700
+                  "
+                >
+                  <ImagePlus size={18} />
+                  انتخاب از گالری
+                </button>
+
+                <p
+                  className="
+                    mt-3 text-xs leading-6
+                    text-slate-500
+                  "
+                >
+                  بعضی مرورگرها حتی با درخواست دوربین،
+                  گالری یا منوی انتخاب عکس را باز
+                  می‌کنند. در HTTP امکان اجبار
+                  مرورگر به اجرای دوربین وجود ندارد.
+                </p>
               </div>
             </div>
           )}
       </div>
 
+      {/* Hidden image-processing canvases */}
+
       <canvas
-        ref={
-          captureCanvasRef
-        }
+        ref={photoCanvasRef}
         className="hidden"
       />
 
       <canvas
-        ref={
-          analysisCanvasRef
-        }
+        ref={qualityCanvasRef}
         className="hidden"
       />
+
+      {/* Bottom controls */}
 
       <footer
         className="
-          bg-black
-          px-5
+          bg-black px-5
           pb-[calc(env(safe-area-inset-bottom)+18px)]
           pt-5
         "
       >
-        {!previewUrl ? (
+        {previewUrl ? (
           <>
-            <p
-              className="
-                mb-4
-                text-center
-                text-xs
-                leading-6
-                text-white/60
-              "
-            >
-              {
-                step.liveInstruction
-              }
-            </p>
-
-            <div className="grid grid-cols-3 items-center">
-              <label
+            {message && (
+              <p
+                role="alert"
                 className="
-                  flex
-                  size-12
-                  cursor-pointer
-                  items-center
-                  justify-center
-                  justify-self-start
-                  rounded-full
-                  bg-white/15
+                  mb-3 text-center
+                  text-xs leading-6
+                  text-rose-300
                 "
               >
-                <ImagePlus
-                  size={21}
-                />
+                {message}
+              </p>
+            )}
 
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={
-                    handleFileInput
-                  }
-                />
-              </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={retakePhoto}
+                disabled={confirming}
+                className="
+                  flex min-h-14
+                  items-center justify-center gap-2
+                  rounded-2xl bg-white/15
+                  px-4 text-sm font-bold
+                  disabled:opacity-50
+                "
+              >
+                <RefreshCcw size={18} />
+                تکرار عکس
+              </button>
 
               <button
                 type="button"
-                aria-label="ثبت عکس"
-                disabled={
-                  startingCamera ||
-                  Boolean(
-                    cameraError,
-                  )
+                onClick={() =>
+                  void confirmPhoto()
                 }
-                onClick={
-                  captureFrame
-                }
+                disabled={confirming}
                 className="
-                  flex
-                  size-[76px]
-                  items-center
-                  justify-center
+                  flex min-h-14
+                  items-center justify-center gap-2
+                  rounded-2xl bg-emerald-500
+                  px-4 text-sm font-bold text-white
+                  disabled:opacity-50
+                "
+              >
+                {confirming ? (
+                  <LoaderCircle
+                    size={18}
+                    className="animate-spin"
+                  />
+                ) : (
+                  <Check size={18} />
+                )}
+
+                {confirming
+                  ? "در حال ذخیره..."
+                  : capturedQuality?.overall ===
+                      "bad"
+                    ? "تأیید با وجود هشدار"
+                    : "تأیید عکس"}
+              </button>
+            </div>
+          </>
+        ) : status === "live" ? (
+          <>
+            <p
+              className="
+                mb-4 text-center
+                text-xs leading-6
+                text-white/70
+              "
+            >
+              {message ?? step.liveInstruction}
+            </p>
+
+            <div
+              className="
+                grid grid-cols-3
+                items-center
+              "
+            >
+              <button
+                type="button"
+                onClick={openGallery}
+                aria-label="انتخاب از گالری"
+                className="
+                  flex size-12
+                  items-center justify-center
+                  justify-self-start
+                  rounded-full bg-white/15
+                "
+              >
+                <ImagePlus size={21} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  void captureLiveFrame()
+                }
+                aria-label="گرفتن عکس"
+                className="
+                  flex size-[76px]
+                  items-center justify-center
                   justify-self-center
-                  rounded-full
-                  border-4
-                  border-white
-                  disabled:opacity-30
+                  rounded-full border-4 border-white
                 "
               >
                 <span
                   className="
-                    block
-                    size-[58px]
-                    rounded-full
-                    bg-white
+                    block size-[58px]
+                    rounded-full bg-white
                   "
                 />
               </button>
 
               <button
                 type="button"
+                onClick={switchCamera}
                 aria-label="تعویض دوربین"
-                onClick={
-                  handleSwitchCamera
-                }
-                disabled={
-                  Boolean(
-                    cameraError,
-                  )
-                }
                 className="
-                  flex
-                  size-12
-                  items-center
-                  justify-center
+                  flex size-12
+                  items-center justify-center
                   justify-self-end
-                  rounded-full
-                  bg-white/15
-                  disabled:opacity-30
+                  rounded-full bg-white/15
                 "
               >
-                <RotateCcw
-                  size={21}
-                />
+                <RotateCcw size={21} />
               </button>
             </div>
           </>
         ) : (
-          <div
+          <p
             className="
-              grid
-              grid-cols-2
-              gap-3
+              text-center text-xs leading-6
+              text-white/65
             "
           >
-            <button
-              type="button"
-              onClick={
-                handleRetake
-              }
-              disabled={
-                confirming
-              }
-              className="
-                flex
-                min-h-14
-                items-center
-                justify-center
-                gap-2
-                rounded-2xl
-                bg-white/15
-                px-4
-                text-sm
-                font-bold
-              "
-            >
-              <RefreshCcw
-                size={18}
-              />
-
-              تکرار عکس
-            </button>
-
-            <button
-              type="button"
-              onClick={
-                handleConfirm
-              }
-              disabled={
-                confirming
-              }
-              className="
-                flex
-                min-h-14
-                items-center
-                justify-center
-                gap-2
-                rounded-2xl
-                bg-emerald-500
-                px-4
-                text-sm
-                font-bold
-                text-white
-                disabled:opacity-60
-              "
-            >
-              <Check
-                size={19}
-              />
-
-              {confirming
-                ? "در حال ذخیره..."
-                : capturedQuality?.overall ===
-                    "bad"
-                  ? "تأیید با وجود هشدار"
-                  : "تأیید تصویر"}
-            </button>
-          </div>
+            برای گرفتن عکس، روی دکمه
+            «گرفتن عکس با دوربین گوشی» بزنید.
+          </p>
         )}
       </footer>
     </div>
   );
 }
+
+
