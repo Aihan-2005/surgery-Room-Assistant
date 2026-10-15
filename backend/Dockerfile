@@ -1,8 +1,11 @@
 FROM python:3.14-slim-trixie AS dependencies
+ARG PIP_INDEX_URL=https://pypi.org/simple
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1
 WORKDIR /build
 COPY requirements.txt .
-RUN python -m venv /opt/venv && /opt/venv/bin/pip install -r requirements.txt
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --index-url "$PIP_INDEX_URL" \
+       --timeout 30 --retries 2 -r requirements.txt
 
 FROM python:3.14-slim-trixie AS runtime
 ARG DEBIAN_MIRROR=https://deb.debian.org/debian

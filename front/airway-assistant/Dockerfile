@@ -1,12 +1,17 @@
 FROM node:22-bookworm-slim AS dependencies
+ARG NPM_REGISTRY=https://registry.npmjs.org/
 WORKDIR /app
 COPY front/airway-assistant/package.json front/airway-assistant/package-lock.json ./
-RUN npm ci
+# npm redirects the lockfile's registry.npmjs.org URLs to this registry while
+# retaining the locked versions and integrity checks.
+RUN npm ci --registry="$NPM_REGISTRY" --fetch-timeout=120000 --fetch-retries=2 \
+    --no-audit --no-fund
 
 FROM dependencies AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY front/airway-assistant/ .
-RUN npm run build
+# Next.js may fetch a compiler fallback during the build; use the same mirror.
+RUN npm_config_registry="$NPM_REGISTRY" npm run build
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000

@@ -166,6 +166,32 @@ keep the official security repository over HTTPS unless an accessible alternativ
 is verified. Debian's package signature checks stay enabled. APT index failures
 now stop the build immediately instead of continuing with missing indexes.
 
+If the official security repository is unreachable, Liara provides
+`https://linux-mirror.liara.ir/repository/debian-security` as an alternative for
+`DEBIAN_SECURITY_MIRROR`. Its Debian security mirror is separate from its Docker
+Hub mirror. See [Liara Debian mirrors](https://docs.liara.ir/mirrors/debian/).
+An HTTP 200 for `InRelease` only confirms connectivity: APT must still verify
+the signed release, expiry and package index checksums. If APT reports an
+unexpected size or hash mismatch, use a consistent mirror; do not disable checks.
+
+If the next build step retries connections to `pypi.org`, or `npm ci` cannot
+download packages, add these build settings to `/etc/airway/compose.env`:
+
+```dotenv
+PIP_INDEX_URL=https://package-mirror.liara.ir/repository/pypi/simple
+NPM_REGISTRY=https://package-mirror.liara.ir/repository/npm/
+```
+
+See Liara's [Python mirror](https://docs.liara.ir/mirrors/pypi/) and
+[npm mirror](https://docs.liara.ir/mirrors/npm/) instructions. Compose passes
+these as Docker build arguments; exporting them on the Ubuntu host alone does
+not configure a Dockerfile that lacks these arguments. Standard public registries
+remain the defaults when the settings are absent, including in GitHub CI.
+The npm lockfile and its integrity checks stay unchanged. These settings apply
+to package installation, not runtime app configuration. Do not put registry
+credentials in build arguments; these options are for public package mirrors.
+Retry with `bash deploy/release.sh local` after saving the settings.
+
 Leave `SITE_ADDRESS=:80`, `DJANGO_COOKIE_SECURE=0`, and `HSTS_SECONDS=0` for
 temporary HTTP testing. `APP_ORIGIN` must be `http://YOUR_SERVER_IP`, with no
 trailing slash. From the checkout, as a user with Docker access:

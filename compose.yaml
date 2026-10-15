@@ -6,6 +6,7 @@ x-backend: &backend
     context: .
     dockerfile: backend/Dockerfile
     args:
+      PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
       DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://deb.debian.org/debian}
       DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-https://security.debian.org/debian-security}
   environment:
@@ -75,6 +76,8 @@ services:
     build:
       context: .
       dockerfile: front/airway-assistant/Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
     environment:
       BACKEND_API_URL: http://backend:8000
       APP_ORIGIN: ${APP_ORIGIN}
