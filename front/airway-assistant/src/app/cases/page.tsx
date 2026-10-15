@@ -84,7 +84,9 @@ export default function CasesPage() {
   }, []);
 
   useEffect(() => {
-    void loadCases();
+    const initialLoadId = window.setTimeout(() => {
+      void loadCases();
+    }, 0);
 
     const handleFocus = () => {
       void loadCases();
@@ -93,6 +95,7 @@ export default function CasesPage() {
     window.addEventListener("focus", handleFocus);
 
     return () => {
+      window.clearTimeout(initialLoadId);
       window.removeEventListener("focus", handleFocus);
     };
   }, [loadCases]);

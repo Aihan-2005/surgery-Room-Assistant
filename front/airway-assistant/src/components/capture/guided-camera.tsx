@@ -342,17 +342,22 @@ export function GuidedCamera({
   /* ------------------------------------------------------------------ */
 
   useEffect(() => {
-    if (supportsLiveCamera) {
-      void startLiveCamera();
-    } else {
-      setStatus("fallback");
-      setMessage(
-        "روی HTTP، مرورگر اجازه دوربین زنده داخل برنامه نمی‌دهد. " +
-          "از دکمه گرفتن عکس با دوربین گوشی استفاده کنید.",
-      );
-    }
+    const initialCameraId = window.setTimeout(() => {
+      if (supportsLiveCamera) {
+        void startLiveCamera();
+      } else {
+        setStatus("fallback");
+        setMessage(
+          "روی HTTP، مرورگر اجازه دوربین زنده داخل برنامه نمی‌دهد. " +
+            "از دکمه گرفتن عکس با دوربین گوشی استفاده کنید.",
+        );
+      }
+    }, 0);
 
-    return () => stopCamera();
+    return () => {
+      window.clearTimeout(initialCameraId);
+      stopCamera();
+    };
   }, [
     supportsLiveCamera,
     startLiveCamera,

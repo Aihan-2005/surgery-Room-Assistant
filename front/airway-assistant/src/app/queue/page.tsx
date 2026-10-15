@@ -212,9 +212,9 @@ export default function QueuePage() {
     );
 
   useEffect(() => {
-    void loadQueue(
-      true,
-    );
+    const initialLoadId = window.setTimeout(() => {
+      void loadQueue(true);
+    }, 0);
 
     /*
      * فقط UI Queue را refresh می‌کند.
@@ -253,6 +253,7 @@ export default function QueuePage() {
     );
 
     return () => {
+      window.clearTimeout(initialLoadId);
       window.clearInterval(
         intervalId,
       );

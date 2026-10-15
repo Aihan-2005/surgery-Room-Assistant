@@ -122,7 +122,9 @@ export default function HomePage() {
 
 
   useEffect(() => {
-    void loadCases();
+    const initialLoadId = window.setTimeout(() => {
+      void loadCases();
+    }, 0);
 
     const handleFocus =
       () => {
@@ -135,6 +137,7 @@ export default function HomePage() {
     );
 
     return () => {
+      window.clearTimeout(initialLoadId);
       window.removeEventListener(
         "focus",
         handleFocus,

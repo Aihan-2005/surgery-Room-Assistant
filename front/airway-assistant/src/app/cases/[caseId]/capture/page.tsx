@@ -347,23 +347,24 @@ export default function CapturePage({
     );
 
   useEffect(() => {
-    void loadData();
+    const initialLoadId = window.setTimeout(() => {
+      void loadData();
+    }, 0);
+
+    return () => window.clearTimeout(initialLoadId);
   }, [
     loadData,
   ]);
 
   useEffect(() => {
+    const previewUrls = previewUrlsRef.current;
+
     return () => {
-      for (
-        const url of
-        previewUrlsRef.current
-      ) {
-        URL.revokeObjectURL(
-          url,
-        );
+      for (const url of previewUrls) {
+        URL.revokeObjectURL(url);
       }
 
-      previewUrlsRef.current.clear();
+      previewUrls.clear();
     };
   }, []);
 
@@ -1182,6 +1183,8 @@ export default function CapturePage({
         <button
           type="button"
           onClick={() =>
+            // Full page navigation is intentional for the offline PWA shell.
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
             window.location.assign(
               "/queue",
             )

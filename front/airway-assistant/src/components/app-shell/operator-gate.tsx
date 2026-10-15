@@ -61,14 +61,12 @@ export function OperatorGate({
 
 
   useEffect(() => {
-    const profile =
-      getOperatorProfile();
+    const initialLoadId = window.setTimeout(() => {
+      const profile = getOperatorProfile();
+      setState(profile ? "ready" : "setup");
+    }, 0);
 
-    setState(
-      profile
-        ? "ready"
-        : "setup",
-    );
+    return () => window.clearTimeout(initialLoadId);
   }, []);
 
 

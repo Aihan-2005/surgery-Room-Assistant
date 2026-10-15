@@ -986,6 +986,9 @@ export async function ensureOperatorRegistered(
     force?: boolean;
   },
 ): Promise<OperatorProfile> {
+  // Keep compatibility without resetting the Device UUID.
+  void _options;
+
   let profile =
     getOperatorProfile();
 

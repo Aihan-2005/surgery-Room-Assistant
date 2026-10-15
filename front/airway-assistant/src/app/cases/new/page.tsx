@@ -413,6 +413,8 @@ export default function NewCasePage() {
           },
         });
 
+      // Full navigation is intentional: /capture is cached by the PWA.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign(
         `/capture?caseId=${encodeURIComponent(airwayCase.id)}`,
       );

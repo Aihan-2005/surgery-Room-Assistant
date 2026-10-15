@@ -20,18 +20,27 @@ interface QualityFeedbackProps {
   compact?: boolean;
 }
 
-function getIcon(
-  level: QualityLevel,
-) {
+function QualityIcon({
+  level,
+  size,
+  className,
+}: {
+  level: QualityLevel;
+  size: number;
+  className?: string;
+}) {
   switch (level) {
     case "good":
-      return CheckCircle2;
+      return <CheckCircle2 size={size} className={className} />;
 
     case "warning":
-      return AlertTriangle;
+      return <AlertTriangle size={size} className={className} />;
 
     case "bad":
-      return XCircle;
+      return <XCircle size={size} className={className} />;
+
+    default:
+      return <CircleEllipsis size={size} className={className} />;
   }
 }
 
@@ -103,10 +112,6 @@ export function QualityFeedback({
         quality.overall,
       );
 
-    const Icon =
-      getIcon(
-        quality.overall,
-      );
 
     return (
       <div
@@ -123,11 +128,10 @@ export function QualityFeedback({
           ${config.wrapper}
         `}
       >
-        <Icon
+        <QualityIcon
+          level={quality.overall}
           size={15}
-          className={
-            config.icon
-          }
+          className={config.icon}
         />
 
         {quality.overall ===
@@ -188,10 +192,6 @@ export function QualityFeedback({
       >
         {quality.checks.map(
           (check) => {
-            const Icon =
-              getIcon(
-                check.level,
-              );
 
             const config =
               getLevelClass(
@@ -213,12 +213,10 @@ export function QualityFeedback({
                   check.detail
                 }
               >
-                <Icon
+                <QualityIcon
+                  level={check.level}
                   size={16}
-                  className={`
-                    mx-auto
-                    ${config.icon}
-                  `}
+                  className={`mx-auto ${config.icon}`}
                 />
 
                 <p
