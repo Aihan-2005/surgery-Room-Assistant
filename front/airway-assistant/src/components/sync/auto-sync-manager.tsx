@@ -23,261 +23,157 @@ import {
 
 import {
   ensureWebPushSubscription,
+  getNotificationPermission,
   registerUploadReminderSync,
 } from "@/lib/pwa/upload-reminder";
 
+const AUTO_SYNC_INTERVAL_MS = 10_000;
 
-const AUTO_SYNC_INTERVAL_MS =
-  10_000;
-
-
-function browserIsOnline() {
-  if (
-    typeof navigator ===
-    "undefined"
-  ) {
-    return false;
-  }
-
+function browserIsOnline(): boolean {
   return (
-    navigator.onLine !==
-    false
+    typeof navigator !== "undefined" &&
+    navigator.onLine !== false
   );
 }
 
-
 export function AutoSyncManager() {
-  const {
-    refresh,
-  } =
-    useConnectivity();
+  const { refresh } = useConnectivity();
 
-  const runningRef =
-    useRef(false);
+  const runningRef = useRef(false);
 
+  const processQueue = useCallback(async () => {
+    if (runningRef.current) {
+      return;
+    }
 
-  const processQueue =
-    useCallback(
-      async () => {
+    runningRef.current = true;
+
+    try {
+
+      
+      const allCases = await getAllCases();
+
+      for (const airwayCase of allCases) {
         if (
-          runningRef.current
+          airwayCase.syncStatus === "syncing" &&
+          !isCaseSyncInFlight(airwayCase.id)
         ) {
-          return;
-        }
-
-        runningRef.current =
-          true;
-
-        try {
-          /*
-           * Caseهایی که برنامه وسط sync
-           * بسته شده بود دوباره queued شوند.
-           */
-          const allCases =
-            await getAllCases();
-
-          for (
-            const airwayCase of
-            allCases
-          ) {
-            if (
-              airwayCase.syncStatus ===
-                "syncing" &&
-              !isCaseSyncInFlight(
-                airwayCase.id,
-              )
-            ) {
-              await updateCaseStatus(
-                airwayCase.id,
-                "queued",
-              );
-            }
-          }
-
-
-          const queuedCases =
-            (
-              await getQueuedCases()
-            ).sort(
-              (
-                first,
-                second,
-              ) =>
-                new Date(
-                  first.updatedAt,
-                ).getTime() -
-                new Date(
-                  second.updatedAt,
-                ).getTime(),
-            );
-
-
-          /*
-           * Queue خالی است.
-           */
-          if (
-            queuedCases.length ===
-            0
-          ) {
-            return;
-          }
-
-
-          /*
-           * حتی اگر Offline باشیم،
-           * Background Sync reminder
-           * ثبت شود.
-           */
-          await registerUploadReminderSync();
-
-
-          /*
-           * هنوز اینترنت نداریم.
-           *
-           * هیچ request ارسال نشود.
-           */
-          if (
-            !browserIsOnline()
-          ) {
-            return;
-          }
-
-
-          /*
-           * Backend + DB check.
-           */
-          const connectivity =
-            await refresh();
-
-          if (
-            !connectivity.canUpload
-          ) {
-            return;
-          }
-
-
-          /*
-           * Queue یکی‌یکی ارسال شود.
-           */
-          for (
-            const airwayCase of
-            queuedCases
-          ) {
-            if (
-              !browserIsOnline()
-            ) {
-              break;
-            }
-
-            try {
-              await syncCase(
-                airwayCase.id,
-              );
-            } catch (
-              error
-            ) {
-              console.warn(
-                "Automatic sync paused:",
-                error,
-              );
-
-              /*
-               * اگر ارسال شکست خورد،
-               * reminder همچنان ثبت باشد.
-               */
-              await registerUploadReminderSync();
-
-              /*
-               * روی یک اتصال خراب پشت‌سرهم
-               * تمام Queue را ارسال نکن.
-               */
-              break;
-            }
-          }
-
-
-          /*
-           * If notification permission was granted,
-           * register/rebind the PushSubscription
-           * after the Device token is available.
-           */
-          await ensureWebPushSubscription();
-
-          await refresh();
-        } catch (
-          error
-        ) {
-          console.warn(
-            "Automatic queue processing failed:",
-            error,
+          await updateCaseStatus(
+            airwayCase.id,
+            "queued",
           );
-        } finally {
-          runningRef.current =
-            false;
         }
-      },
-      [
-        refresh,
-      ],
-    );
+      }
 
-
-  useEffect(() => {
-    /*
-     * هنگام بازشدن برنامه.
-     */
-    void processQueue();
-
-
-    /*
-     * هر 10 ثانیه.
-     */
-    const intervalId =
-      window.setInterval(
-        () => {
-          void processQueue();
-        },
-        AUTO_SYNC_INTERVAL_MS,
+      const queuedCases = (
+        await getQueuedCases()
+      ).sort(
+        (first, second) =>
+          new Date(first.updatedAt).getTime() -
+          new Date(second.updatedAt).getTime(),
       );
 
+      /*
+       * Sending cases is independent from
+       * notification permission.
+       */
+      if (queuedCases.length > 0) {
+        /*
+         * Optional Background Sync reminder.
+         * Failure must not block local cases.
+         */
+        await registerUploadReminderSync();
 
-    /*
-     * لحظه برگشت اینترنت.
-     */
-    const handleOnline =
-      () => {
-        void processQueue();
-      };
+        if (browserIsOnline()) {
+          const connectivity = await refresh();
 
+          if (connectivity.canUpload) {
+            for (const airwayCase of queuedCases) {
+              if (!browserIsOnline()) {
+                break;
+              }
 
-    /*
-     * برگشت focus.
-     */
-    const handleFocus =
-      () => {
-        void processQueue();
-      };
+              try {
+                await syncCase(airwayCase.id);
+              } catch (error) {
+                console.warn(
+                  "Automatic sync paused:",
+                  error,
+                );
 
+                await registerUploadReminderSync();
 
-    /*
-     * PWA دوباره visible شد.
-     */
-    const handleVisibilityChange =
-      () => {
-        if (
-          document.visibilityState ===
-          "visible"
-        ) {
-          void processQueue();
+                // Avoid repeated requests after a failure.
+                break;
+              }
+            }
+
+            await refresh();
+          }
         }
-      };
+      }
 
+      /*
+       * Web Push subscription is independent
+       * from the number of queued cases.
+       *
+       * Never request notification permission
+       * automatically. Only reconnect when the
+       * user has already granted permission.
+       */
+      if (
+        browserIsOnline() &&
+        getNotificationPermission() === "granted"
+      ) {
+        await ensureWebPushSubscription();
+      }
+    } catch (error) {
+      console.warn(
+        "Automatic queue processing failed:",
+        error,
+      );
+    } finally {
+      runningRef.current = false;
+    }
+  }, [refresh]);
 
-    const handlePageShow =
-      () => {
+  useEffect(() => {
+    void processQueue();
+
+    /*
+     * Periodically check while the app is visible.
+     */
+    const intervalId = window.setInterval(() => {
+      if (
+        document.visibilityState === "visible"
+      ) {
         void processQueue();
-      };
+      }
+    }, AUTO_SYNC_INTERVAL_MS);
 
+    const handleOnline = () => {
+      void processQueue();
+    };
+
+    const handleFocus = () => {
+      void processQueue();
+    };
+
+    const handlePageShow = () => {
+      void processQueue();
+    };
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible"
+      ) {
+        void processQueue();
+      }
+    };
+
+    const handleControllerChange = () => {
+      void processQueue();
+    };
 
     window.addEventListener(
       "online",
@@ -299,11 +195,15 @@ export function AutoSyncManager() {
       handleVisibilityChange,
     );
 
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        handleControllerChange,
+      );
+    }
 
     return () => {
-      window.clearInterval(
-        intervalId,
-      );
+      window.clearInterval(intervalId);
 
       window.removeEventListener(
         "online",
@@ -324,11 +224,16 @@ export function AutoSyncManager() {
         "visibilitychange",
         handleVisibilityChange,
       );
-    };
-  }, [
-    processQueue,
-  ]);
 
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          handleControllerChange,
+        );
+      }
+    };
+  }, [processQueue]);
 
   return null;
 }
+

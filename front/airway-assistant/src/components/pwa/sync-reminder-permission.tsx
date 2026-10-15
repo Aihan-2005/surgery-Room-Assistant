@@ -9,16 +9,16 @@ import {
   BellRing,
   CheckCircle2,
   LoaderCircle,
+  Send,
 } from "lucide-react";
 
 import {
   ensureWebPushSubscription,
   getNotificationPermission,
-  notificationsAvailable,
   preloadPushConfiguration,
   registerUploadReminderSync,
   requestNotificationPermission,
-  showLocalTestNotification,
+  sendRealPushTest,
   type PushSetupResult,
 } from "@/lib/pwa/upload-reminder";
 
@@ -26,8 +26,8 @@ type PermissionState =
   | "checking"
   | "unsupported"
   | "default"
-  | "granted"
-  | "denied";
+  | "denied"
+  | "granted";
 
 export function SyncReminderPermission() {
   const [permission, setPermission] =
@@ -39,29 +39,88 @@ export function SyncReminderPermission() {
   const [loading, setLoading] =
     useState(false);
 
+  const [testing, setTesting] =
+    useState(false);
+
+  const [feedback, setFeedback] =
+    useState<string | null>(null);
+
+  const [testSucceeded, setTestSucceeded] =
+    useState(false);
+
   useEffect(() => {
-    const current = getNotificationPermission();
+    let active = true;
 
-    setPermission(
-      current === "unsupported"
-        ? "unsupported"
-        : current,
-    );
+    async function updateExistingPermission() {
+      const current = getNotificationPermission();
 
-    if (notificationsAvailable()) {
-      void preloadPushConfiguration();
+      if (!active) return;
+
+      setPermission(current);
+
+      if (current !== "granted") {
+        return;
+      }
+
+      /*
+       * A previously granted permission does not
+       * require another user permission prompt.
+       */
+      const result =
+        await ensureWebPushSubscription();
+
+      if (active) {
+        setPushState(result);
+      }
     }
+
+    void preloadPushConfiguration();
+    void updateExistingPermission();
+
+    const onOnline = () => {
+      void updateExistingPermission();
+    };
+
+    const onControllerChange = () => {
+      void updateExistingPermission();
+    };
+
+    window.addEventListener("online", onOnline);
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        onControllerChange,
+      );
+    }
+
+    return () => {
+      active = false;
+
+      window.removeEventListener(
+        "online",
+        onOnline,
+      );
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.removeEventListener(
+          "controllerchange",
+          onControllerChange,
+        );
+      }
+    };
   }, []);
 
   async function handleEnable() {
     if (loading) return;
 
     setLoading(true);
+    setFeedback(null);
+    setTestSucceeded(false);
 
     try {
       /*
-       * Permission must be requested as a direct
-       * result of the user's click.
+       * Must be called directly after a user click.
        */
       const result =
         await requestNotificationPermission();
@@ -72,23 +131,46 @@ export function SyncReminderPermission() {
         return;
       }
 
-      await registerUploadReminderSync();
-
+      /*
+       * Complete Push subscription first.
+       * Do not show a fake success just because
+       * browser notification permission is granted.
+       */
       const setup =
         await ensureWebPushSubscription();
 
       setPushState(setup);
 
-      await showLocalTestNotification();
-    } catch (error) {
-      console.warn(
-        "Unable to enable reminders:",
-        error,
-      );
-
+      /*
+       * Background Sync is an optional reminder
+       * mechanism, not a condition for photo uploads.
+       */
+      await registerUploadReminderSync();
+    } catch {
       setPushState("pending");
+
+      setFeedback(
+        "فعال‌سازی کامل نشد. دوباره تلاش کنید.",
+      );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRealTest() {
+    if (testing) return;
+
+    setTesting(true);
+    setFeedback(null);
+    setTestSucceeded(false);
+
+    try {
+      const result = await sendRealPushTest();
+
+      setTestSucceeded(result.ok);
+      setFeedback(result.message);
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -100,14 +182,14 @@ export function SyncReminderPermission() {
     return (
       <section className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
         <p className="text-sm font-bold text-amber-900">
-          اعلان‌ها در این محیط فعال نیستند
+          اعلان واقعی هنوز در این محیط در دسترس نیست
         </p>
+
         <p className="mt-2 text-xs leading-6 text-amber-800">
-          برای استفاده از اعلان و قابلیت آفلاین PWA،
-          برنامه را با HTTPS باز کنید. در آیفون،
-          برنامه باید به صفحه اصلی گوشی اضافه شده باشد.
-          ثبت اطلاعات و قرار گرفتن عکس‌ها در صف
-          به اجازه اعلان وابسته نیست.
+          برای فعال شدن Web Push، برنامه را با HTTPS
+          باز کنید. روی آیفون باید برنامه به Home Screen
+          اضافه شده باشد. ثبت بیمار، ذخیره عکس و صف
+          ارسال به اجازه اعلان وابسته نیستند.
         </p>
       </section>
     );
@@ -119,41 +201,78 @@ export function SyncReminderPermission() {
         <p className="text-sm font-bold text-slate-900">
           اجازه اعلان‌ها مسدود شده است
         </p>
+
         <p className="mt-2 text-xs leading-6 text-slate-600">
-          برای فعال‌سازی دوباره، اجازه Notification
-          را از تنظیمات مرورگر یا گوشی تغییر دهید.
-          ارسال عکس‌ها بدون این اجازه همچنان انجام می‌شود.
+          اجازه Notification را در تنظیمات مرورگر
+          یا گوشی فعال کنید. برنامه بدون اعلان هم
+          می‌تواند عکس‌ها را ارسال کند.
         </p>
       </section>
     );
   }
 
-  const fullyActive =
+  const activated =
     permission === "granted" &&
     pushState === "active";
 
-  const description =
-    permission === "granted"
-      ? pushState === "offline"
-        ? "اجازه اعلان صادر شده است. اتصال آن به سرور پس از آنلاین شدن تکمیل می‌شود."
-        : pushState === "not-configured"
-          ? "اجازه اعلان صادر شده، اما تنظیمات VAPID در Backend هنوز کامل نیست."
-          : pushState === "pending"
-            ? "اجازه اعلان صادر شده، ولی ثبت اشتراک روی سرور تکمیل نشده است."
-            : "اجازه اعلان صادر شده است. برای فعال‌سازی اتصال Push می‌توانید دکمه زیر را بزنید."
-      : "با اجازه دادن به اعلان‌ها، مرورگرهای پشتیبانی‌کننده می‌توانند برای موارد در صف ارسال، یادآوری نمایش دهند.";
+  function description() {
+    if (permission === "default") {
+      return (
+        "برای دریافت یادآوری ارسال، اجازه اعلان‌ها را " +
+        "فعال کنید. این مجوز اختیاری است."
+      );
+    }
+
+    switch (pushState) {
+      case "active":
+        return (
+          "اشتراک این دستگاه در Django ثبت شده است. " +
+          "برای تأیید ارسال واقعی، دکمه تست را بزنید."
+        );
+
+      case "offline":
+        return (
+          "مجوز اعلان صادر شده است. بعد از وصل شدن " +
+          "اینترنت، ثبت اشتراک تکمیل می‌شود."
+        );
+
+      case "not-configured":
+        return (
+          "مجوز اعلان صادر شده، ولی کلیدهای VAPID " +
+          "هنوز روی Backend تنظیم نشده‌اند."
+        );
+
+      case "device-error":
+        return (
+          "ثبت اعلان با خطای اتصال Device مواجه شد. " +
+          "ابتدا باید اتصال همین نصب به سرور بررسی شود."
+        );
+
+      case "unsupported":
+        return (
+          "این مرورگر از Push API پشتیبانی نمی‌کند " +
+          "یا برنامه هنوز به‌درستی نصب نشده است."
+        );
+
+      default:
+        return (
+          "مجوز اعلان صادر شده، اما اتصال آن به " +
+          "سرور کامل نیست. دوباره تلاش کنید."
+        );
+    }
+  }
 
   return (
     <section
       className={`mt-4 rounded-2xl border p-4 ${
-        fullyActive
+        activated
           ? "border-emerald-200 bg-emerald-50"
           : "border-sky-200 bg-sky-50"
       }`}
     >
       <div className="flex items-start gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-sky-700">
-          {fullyActive ? (
+          {activated ? (
             <CheckCircle2 size={21} />
           ) : (
             <BellRing size={21} />
@@ -161,33 +280,23 @@ export function SyncReminderPermission() {
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-slate-900">
-            {fullyActive
-              ? "یادآوری‌ها و Web Push فعال هستند"
+          <h3 className="text-sm font-bold text-slate-900">
+            {activated
+              ? "Web Push دستگاه فعال است"
               : permission === "granted"
-                ? "اجازه اعلان‌ها صادر شده است"
-                : "فعال‌سازی یادآوری ارسال"}
+                ? "تکمیل اتصال اعلان‌ها"
+                : "فعال‌سازی اعلان‌های ارسال"}
+          </h3>
+
+          <p className="mt-2 text-xs leading-6 text-slate-600">
+            {description()}
           </p>
 
-          {!fullyActive && (
-            <p className="mt-2 text-xs leading-6 text-slate-600">
-              {description}
-            </p>
-          )}
-
-          {fullyActive && (
-            <p className="mt-2 text-xs leading-6 text-emerald-800">
-              این دستگاه برای دریافت Push در Backend
-              ثبت شده است. زمان‌بندی ارسال یادآوری‌ها
-              به قابلیت مرورگر و تنظیمات سرور وابسته است.
-            </p>
-          )}
-
-          {!fullyActive && (
+          {!activated && (
             <button
               type="button"
-              disabled={loading}
               onClick={() => void handleEnable()}
+              disabled={loading}
               className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 text-xs font-bold text-white disabled:opacity-60"
             >
               {loading && (
@@ -198,12 +307,48 @@ export function SyncReminderPermission() {
               )}
 
               {permission === "granted"
-                ? "تکمیل فعال‌سازی یادآوری"
-                : "اجازه اعلان‌ها"}
+                ? "تکمیل اتصال به سرور"
+                : "اجازه دادن به اعلان‌ها"}
             </button>
+          )}
+
+          {activated && (
+            <button
+              type="button"
+              onClick={() => void handleRealTest()}
+              disabled={testing}
+              className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {testing ? (
+                <LoaderCircle
+                  size={16}
+                  className="animate-spin"
+                />
+              ) : (
+                <Send size={16} />
+              )}
+
+              ارسال اعلان آزمایشی واقعی
+            </button>
+          )}
+
+          {feedback && (
+            <p
+              role="status"
+              aria-live="polite"
+              className={`mt-3 text-xs leading-6 ${
+                testSucceeded
+                  ? "text-emerald-800"
+                  : "text-amber-800"
+              }`}
+            >
+              {feedback}
+            </p>
           )}
         </div>
       </div>
     </section>
   );
 }
+
+
