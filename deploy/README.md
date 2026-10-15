@@ -13,15 +13,92 @@ or copy its data. The old non-Docker Nginx/systemd examples remain available in
 
 ## 1. Install Docker and prepare the VPS
 
-Install Docker Engine and the Compose plugin using the
-[official Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/).
-Then check:
+Run the following installation commands **on the Ubuntu 24.04 VPS as root**.
+They follow the provider's ParsVDS APT mirror and Arvan Docker Hub mirror setup.
+The mirror setup changes the server's APT sources; it is not a command to run on
+your Mac.
+
+Download and run the provider's mirror setup:
 
 ```sh
-sudo systemctl enable --now docker
-docker version
-docker compose version
+curl -fsSL https://mirror.parsvds.com/scripts/parsvds-mirror-setup.sh \
+  -o /tmp/parsvds-mirror-setup.sh
+bash /tmp/parsvds-mirror-setup.sh
 ```
+
+Choose **1: Switch BASE repos to ParsVDS (Ubuntu/Debian)**. This project uses
+PostgreSQL, so the MariaDB options are unnecessary. If the menu returns, choose
+0 to exit. If Docker CE is already installed from Docker's own repository, keep
+that installation and its Compose/Buildx plugins and skip the package-install
+block below; do not mix the Docker CE and Ubuntu package families.
+
+For a fresh installation, refresh APT and install Ubuntu's Docker packages:
+
+```sh
+apt update
+apt install -y docker.io docker-compose-v2 docker-buildx python3
+systemctl enable --now docker
+```
+
+Use `docker-compose-v2`, which provides `docker compose`, and `docker-buildx`
+for builds. The provider example's `docker-compose` package is the legacy
+1.29.2 release in Ubuntu 24.04, while the v2 package meets this project's minimum
+version. See the Ubuntu [Compose v2 package](https://packages.ubuntu.com/noble/arm64/docker-compose-v2)
+and [legacy Compose package](https://packages.ubuntu.com/noble/docker-compose).
+
+Add the Arvan mirror while preserving other Docker daemon settings and backing
+up any existing configuration:
+
+```sh
+install -d -m 755 /etc/docker
+python3 - <<'PY'
+import datetime
+import json
+from pathlib import Path
+import shutil
+
+path = Path('/etc/docker/daemon.json')
+config = json.loads(path.read_text()) if path.exists() else {}
+mode = path.stat().st_mode & 0o777 if path.exists() else 0o644
+if path.exists():
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    shutil.copy2(path, path.with_name(f'daemon.json.backup-{stamp}'))
+mirrors = config.setdefault('registry-mirrors', [])
+if 'https://docker.arvancloud.ir' not in mirrors:
+    mirrors.insert(0, 'https://docker.arvancloud.ir')
+pending = path.with_name('daemon.json.pending')
+pending.write_text(json.dumps(config, indent=2) + '\n')
+pending.chmod(mode)
+pending.replace(path)
+PY
+dockerd --validate --config-file=/etc/docker/daemon.json
+```
+
+If validation reports an error, fix the configuration before restarting Docker.
+Restarting the daemon can interrupt existing containers. No `docker logout`
+is needed to apply a registry mirror.
+
+```sh
+systemctl restart docker
+docker info --format '{{json .RegistryConfig.Mirrors}}'
+docker run --rm hello-world
+docker compose version
+docker buildx version
+```
+
+The Arvan mirror is for **Docker Hub images** (Python, Node, PostgreSQL and Caddy).
+Your CI application images use `ghcr.io`; the VPS still needs direct access and,
+for private images, a registry login as explained below. Docker registry mirrors
+do not proxy GHCR. See [Docker's registry mirror documentation](https://docs.docker.com/docker-hub/image-library/mirror/).
+
+To check that GHCR is reachable from the VPS:
+
+```sh
+curl -I --connect-timeout 15 https://ghcr.io/v2/
+```
+
+A `401 Unauthorized` response from this unauthenticated request is expected;
+the authenticated image pull later is the access check.
 
 Use Compose v2.24 or newer. Allow TCP 80 and 443 through the VPS provider firewall
 and the host firewall, preserving SSH access. Caddy needs those ports free; check
@@ -111,6 +188,11 @@ to `main`, and manual runs. It:
 
 Current application lint/test failures are real gates: do not enable deployment
 until the checks pass. Merging a workflow does not make failing app checks pass.
+
+The public `/api/push/config`, `/api/push/subscriptions` and `/api/push/test`
+paths go to the Next.js handlers, which translate the browser's device-token
+header before calling Django. Their slash-terminated backend API equivalents
+remain routed to Django. Preserve this distinction when changing the proxy.
 
 Create a dedicated SSH deployment user, for example `airway-deploy`, with access
 to the checkout, `/srv/airway/deploy.lock`, `/srv/airway/current-release`, backups,

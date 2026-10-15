@@ -18,6 +18,9 @@
 **/*.zip
 **/*.dump
 **/backups
+**/.lint-fix-backups
+**/*.bak
+**/fix_react_lint.py
 **/media
 **/staticfiles
 **/*.pem

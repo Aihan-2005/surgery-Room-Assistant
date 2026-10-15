@@ -15,7 +15,8 @@
 		respond 404
 	}
 
-	@django path /admin /admin/* /api/health/ /api/devices/* /api/assessments/* /api/push/*
+	# Keep the slash-terminated Django push API distinct from Next.js proxies.
+	@django path /admin /admin/* /api/health/ /api/devices/* /api/assessments/* /api/push/config/ /api/push/subscriptions/ /api/push/test/
 	handle @django {
 		reverse_proxy backend:8000 {
 			header_up X-Forwarded-For {remote_host}
@@ -26,7 +27,8 @@
 		}
 	}
 
-	# Next.js owns /api/device/*, /api/sync/* and /api/backend-health.
+	# Next.js owns /api/device/*, /api/sync/*, /api/backend-health and
+	# /api/push/config, /api/push/subscriptions, /api/push/test (without a slash).
 	handle {
 		reverse_proxy frontend:3000 {
 			header_up X-Forwarded-For {remote_host}
