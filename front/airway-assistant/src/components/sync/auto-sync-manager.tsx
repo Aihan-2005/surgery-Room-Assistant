@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import {
   getAllCases,
@@ -24,16 +20,52 @@ import {
 import {
   ensureWebPushSubscription,
   getNotificationPermission,
+  getReadyServiceWorkerRegistration,
   registerUploadReminderSync,
 } from "@/lib/pwa/upload-reminder";
 
 const AUTO_SYNC_INTERVAL_MS = 10_000;
+
+const REMINDER_MESSAGE =
+  "AIRWAY_CHECK_PENDING_REMINDER";
 
 function browserIsOnline(): boolean {
   return (
     typeof navigator !== "undefined" &&
     navigator.onLine !== false
   );
+}
+
+
+
+async function requestPendingReminder(): Promise<void> {
+  if (
+    !browserIsOnline() ||
+    document.visibilityState === "visible" ||
+    getNotificationPermission() !== "granted"
+  ) {
+    return;
+  }
+
+  const stillPending = (
+    await getAllCases()
+  ).some(
+    (airwayCase) =>
+      airwayCase.syncStatus === "queued" ||
+      airwayCase.syncStatus === "syncing" ||
+      airwayCase.syncStatus === "failed",
+  );
+
+  if (!stillPending) {
+    return;
+  }
+
+  const registration =
+    await getReadyServiceWorkerRegistration();
+
+  registration?.active?.postMessage({
+    type: REMINDER_MESSAGE,
+  });
 }
 
 export function AutoSyncManager() {
@@ -65,6 +97,8 @@ export function AutoSyncManager() {
         }
       }
 
+    
+      
       const queuedCases = (
         await getQueuedCases()
       ).sort(
@@ -73,15 +107,11 @@ export function AutoSyncManager() {
           new Date(second.updatedAt).getTime(),
       );
 
-      /*
-       * Sending cases is independent from
-       * notification permission.
-       */
+  
+      
       if (queuedCases.length > 0) {
-        /*
-         * Optional Background Sync reminder.
-         * Failure must not block local cases.
-         */
+    
+        
         await registerUploadReminderSync();
 
         if (browserIsOnline()) {
@@ -101,9 +131,12 @@ export function AutoSyncManager() {
                   error,
                 );
 
+              
+                
                 await registerUploadReminderSync();
 
-                // Avoid repeated requests after a failure.
+               
+                
                 break;
               }
             }
@@ -113,14 +146,10 @@ export function AutoSyncManager() {
         }
       }
 
-      /*
-       * Web Push subscription is independent
-       * from the number of queued cases.
-       *
-       * Never request notification permission
-       * automatically. Only reconnect when the
-       * user has already granted permission.
-       */
+      
+      await requestPendingReminder();
+
+      
       if (
         browserIsOnline() &&
         getNotificationPermission() === "granted"
@@ -138,23 +167,24 @@ export function AutoSyncManager() {
   }, [refresh]);
 
   useEffect(() => {
+ 
+    
     void processQueue();
 
-    /*
-     * Periodically check while the app is visible.
-     */
+    
     const intervalId = window.setInterval(() => {
-      if (
-        document.visibilityState === "visible"
-      ) {
+      if (document.visibilityState === "visible") {
         void processQueue();
       }
     }, AUTO_SYNC_INTERVAL_MS);
 
+    
     const handleOnline = () => {
       void processQueue();
     };
 
+   
+    
     const handleFocus = () => {
       void processQueue();
     };
@@ -164,13 +194,13 @@ export function AutoSyncManager() {
     };
 
     const handleVisibilityChange = () => {
-      if (
-        document.visibilityState === "visible"
-      ) {
+      if (document.visibilityState === "visible") {
         void processQueue();
       }
     };
 
+  
+    
     const handleControllerChange = () => {
       void processQueue();
     };
@@ -237,3 +267,4 @@ export function AutoSyncManager() {
   return null;
 }
 
+ 
