@@ -36,6 +36,14 @@ class ReleaseTests(unittest.TestCase):
             "TEST_LATEST_SHA": SHA,
         }
         self.stub("flock", "pass\n")  # Lock contention is handled by Linux flock.
+        self.stub("curl", "pass\n")
+        self.stub("python3", """
+with open(os.environ['TEST_COMMAND_LOG'], 'a') as log:
+    log.write(json.dumps(['python3', *sys.argv[1:]]) + '\\n')
+sys.stdin.read()
+if os.environ.get('TEST_FAIL_ON') == 'gateway-check':
+    sys.exit(55)
+""")
         self.stub("docker", """
 args = sys.argv[1:]
 # Simulate commands that attach to stdin, as `compose run` normally does.
@@ -119,9 +127,17 @@ if args[0] == 'rev-parse':
         self.assertLess(position("pg_dump"), position("migrate"))
         self.assertLess(position("tar"), position("migrate"))
         self.assertLess(position("migrate"), position("collectstatic"))
-        self.assertLess(position("collectstatic"), position("node"))
+        self.assertLess(position("collectstatic"), position("python3"))
         self.assertIn(["git", "checkout", "--detach", SHA], calls)
         self.assertEqual((self.root / "current-release").read_text(), SHA + "\n")
+
+    def test_failed_gateway_check_stops_apps_without_recording_release(self):
+        result = self.run_release(TEST_FAIL_ON="gateway-check")
+        self.assertEqual(result.returncode, 55)
+        self.assertEqual(sum("stop" in call for call in self.calls()), 2)
+        self.assertFalse((self.root / "current-release").exists())
+        backup, = (self.root / "backups").iterdir()
+        self.assertTrue((backup / "database.dump").stat().st_size)
 
 
 if __name__ == "__main__":

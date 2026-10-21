@@ -330,7 +330,12 @@ it as a development working directory. Runtime secrets remain in `/etc/airway`.
 Images are prepared/pulled before maintenance. Then the script stops the public
 gateway and both apps, backs up the container database and media, applies
 migrations, collects static files, starts the apps, and checks container health
-plus the public homepage/API. This simple single-VPS setup has downtime during
+plus the homepage/API through Caddy's published ports on VPS loopback. The check
+preserves the public Host header and HTTPS certificate validation, and does not
+require external DNS, international connectivity or a container connection back
+to the VPS public IP. Check public access separately from another device/network;
+this local check cannot establish whether the provider firewall permits visitors.
+The VPS needs `curl` and Python 3 for verification. This simple single-VPS setup has downtime during
 backup, migration and restart; it does not provide zero-downtime deployment.
 
 Backups are private directories under `/srv/airway/backups/`, each containing
