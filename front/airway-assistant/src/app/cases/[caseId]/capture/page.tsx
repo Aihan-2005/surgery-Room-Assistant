@@ -275,15 +275,16 @@ export default function CapturePage({
             ) {
               continue;
             }
-
-            const preview:
-              PhotoPreview = {
-              photo,
-
-              url:
-                createPreviewUrl(
-                  photo.blob,
-                ),
+const preview:
+  PhotoPreview = {
+  photo:
+    loadedCase.syncStatus === "synced"
+      ? { ...photo, blob: new Blob([]) }
+      : photo,
+url:
+  loadedCase.syncStatus === "synced"
+    ? ""
+    : createPreviewUrl(photo.blob),
             };
 
             previews[
@@ -975,6 +976,9 @@ export default function CapturePage({
               maxPhotoCount={
                 MAX_PHOTOS_PER_POSITION
               }
+                caseId={caseId}
+              synced={remoteLocked}
+
               photos={(
                 photos[
                   step.kind
