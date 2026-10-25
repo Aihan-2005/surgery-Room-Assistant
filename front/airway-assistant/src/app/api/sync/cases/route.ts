@@ -228,19 +228,10 @@ export async function GET(
   if (
     !backendUrl
   ) {
-    return NextResponse.json({
-      configured:
-        false,
-
-      reachable:
-        false,
-
-      databaseReady:
-        false,
-
-      authenticated:
-        false,
-    });
+    return NextResponse.json(
+      { code: "BACKEND_NOT_CONFIGURED" },
+      { status: 503, headers: { "Cache-Control": "private, no-store" } },
+    );
   }
 
   const token =
@@ -250,121 +241,36 @@ export async function GET(
       )
       ?.trim();
 
-  try {
-    const healthResponse =
-      await fetchWithTimeout(
-        `${backendUrl}/api/health/`,
-        {
-          method:
-            "GET",
-
-          headers: {
-            Accept:
-              "application/json",
-          },
-        },
-      );
-
-    if (
-      !healthResponse.ok
-    ) {
-      return NextResponse.json({
-        configured:
-          true,
-
-        reachable:
-          false,
-
-        databaseReady:
-          false,
-
-        authenticated:
-          false,
-
-        status:
-          healthResponse.status,
-      });
-    }
-
-    if (
-      !token
-    ) {
-      return NextResponse.json({
-        configured:
-          true,
-
-        reachable:
-          true,
-
-        databaseReady:
-          false,
-
-        authenticated:
-          false,
-
-        status:
-          healthResponse.status,
-      });
-    }
-
-    const authResponse =
-      await fetchWithTimeout(
-        `${backendUrl}/api/assessments/`,
-        {
-          method:
-            "GET",
-
-          headers:
-            backendHeaders(
-              token,
-            ),
-        },
-      );
-
-    const backendProcessedRequest =
-      authResponse.ok ||
-      authResponse.status ===
-        401 ||
-      authResponse.status ===
-        403;
-
-    return NextResponse.json({
-      configured:
-        true,
-
-      reachable:
-        true,
-
-      databaseReady:
-        backendProcessedRequest,
-
-      authenticated:
-        authResponse.ok,
-
-      status:
-        authResponse.status,
-    });
-  } catch (
-    error
-  ) {
-    console.error(
-      "Backend connectivity probe failed:",
-      error,
+  if (!token) {
+    return NextResponse.json(
+      { code: "DEVICE_TOKEN_REQUIRED" },
+      { status: 401, headers: { "Cache-Control": "private, no-store" } },
     );
+  }
 
-    return NextResponse.json({
-      configured:
-        true,
+  try {
+    const response = await fetchWithTimeout(
+      `${backendUrl}/api/assessments/`,
+      { method: "GET", headers: backendHeaders(token), redirect: "error" },
+    );
+    const payload = await readPayload(response);
 
-      reachable:
-        false,
+    if (response.ok && !Array.isArray(payload)) {
+      return NextResponse.json(
+        { code: "INVALID_BACKEND_RESPONSE" },
+        { status: 502, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
 
-      databaseReady:
-        false,
-
-      authenticated:
-        false,
+    return NextResponse.json(payload, {
+      status: response.status,
+      headers: { "Cache-Control": "private, no-store" },
     });
+  } catch {
+    return NextResponse.json(
+      { code: "BACKEND_UNAVAILABLE" },
+      { status: 502, headers: { "Cache-Control": "private, no-store" } },
+    );
   }
 }
 

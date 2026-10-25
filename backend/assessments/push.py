@@ -44,6 +44,14 @@ SYNC_REMINDER_PAYLOAD = {
 }
 
 
+PUSH_TEST_PAYLOAD = {
+    "title": "اعلان آزمایشی",
+    "body": "اتصال اعلان این دستگاه به سرور برقرار است.",
+    "url": "/queue",
+    "type": "push-test",
+}
+
+
 def push_is_configured():
     return bool(
         settings.WEB_PUSH_ENABLED
@@ -101,6 +109,8 @@ def _mark_failure(
 def send_sync_reminder(
     subscription:
         PushSubscription,
+    *,
+    payload=None,
 ):
     """
     Send a generic notification.
@@ -142,7 +152,7 @@ def send_sync_reminder(
                 subscription_info,
 
             data=json.dumps(
-                SYNC_REMINDER_PAYLOAD,
+                payload if payload is not None else SYNC_REMINDER_PAYLOAD,
                 ensure_ascii=False,
             ),
 
@@ -257,6 +267,8 @@ def send_sync_reminder(
 def send_sync_reminder_to_device(
     device:
         Device,
+    *,
+    test=False,
 ):
     if not push_is_configured():
         raise PushConfigurationError(
@@ -280,7 +292,8 @@ def send_sync_reminder_to_device(
 
     for subscription in subscriptions:
         result = send_sync_reminder(
-            subscription
+            subscription,
+            payload=PUSH_TEST_PAYLOAD if test else SYNC_REMINDER_PAYLOAD,
         )
 
         if result.get(

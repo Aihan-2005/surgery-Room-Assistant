@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import {
-  ArrowLeft,
   ClipboardList,
   Plus,
   RefreshCw,
@@ -12,93 +10,11 @@ import {
 
 import { NetworkPill } from "@/components/app-shell/network-pill";
 
-import { getAllCases } from "@/lib/db/database";
-
-import type { AirwayCase } from "@/lib/domain/types";
-
-function getStatusConfig(status: AirwayCase["syncStatus"]) {
-  switch (status) {
-    case "draft":
-      return {
-        label: "پیش‌نویس",
-        className: "bg-slate-100 text-slate-600",
-      };
-
-    case "queued":
-      return {
-        label: "در صف ارسال",
-        className: "bg-amber-50 text-amber-700",
-      };
-
-    case "syncing":
-      return {
-        label: "در حال ارسال",
-        className: "bg-sky-50 text-sky-700",
-      };
-
-    case "synced":
-      return {
-        label: "ارسال شده",
-        className: "bg-emerald-50 text-emerald-700",
-      };
-
-    case "failed":
-      return {
-        label: "خطای ارسال",
-        className: "bg-red-50 text-red-700",
-      };
-  }
-}
-
-function formatDate(date: string) {
-  try {
-    return new Intl.DateTimeFormat("fa-IR", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(date));
-  } catch {
-    return date;
-  }
-}
+import { useCaseHistory } from "@/hooks/use-case-history";
+import { CaseHistoryCard } from "@/components/case-history-card";
 
 export default function CasesPage() {
-  const [cases, setCases] = useState<AirwayCase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadCases = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await getAllCases();
-
-      setCases(result);
-    } catch (error) {
-      console.error("Failed to load cases:", error);
-
-      setError("خواندن Caseها از حافظه دستگاه انجام نشد.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialLoadId = window.setTimeout(() => {
-      void loadCases();
-    }, 0);
-
-    const handleFocus = () => {
-      void loadCases();
-    };
-
-    window.addEventListener("focus", handleFocus);
-
-    return () => {
-      window.clearTimeout(initialLoadId);
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, [loadCases]);
+  const { cases, loading, refreshing, error, refresh } = useCaseHistory();
 
   return (
     <div className="px-4 pb-8 pt-5">
@@ -114,7 +30,7 @@ export default function CasesPage() {
             </h1>
 
             <p className="mt-2 text-sm leading-7 text-slate-500">
-              Caseهای ذخیره‌شده روی این دستگاه را مشاهده و ادامه دهید.
+              پرونده‌های این دستگاه و پرونده‌های قبلی همین نصب در سرور را مشاهده کنید.
             </p>
           </div>
 
@@ -150,8 +66,8 @@ export default function CasesPage() {
         <button
           type="button"
           aria-label="بروزرسانی لیست"
-          onClick={() => void loadCases()}
-          disabled={loading}
+          onClick={() => void refresh()}
+          disabled={refreshing}
           className="
             flex
             size-13
@@ -170,7 +86,7 @@ export default function CasesPage() {
         >
           <RefreshCw
             size={19}
-            className={loading ? "animate-spin" : ""}
+            className={refreshing ? "animate-spin" : ""}
           />
         </button>
       </section>
@@ -210,7 +126,7 @@ export default function CasesPage() {
         </div>
       )}
 
-      {!loading && !error && cases.length === 0 && (
+      {!loading && cases.length === 0 && (
         <div
           className="
             mt-5
@@ -272,118 +188,11 @@ export default function CasesPage() {
         </div>
       )}
 
-      {!loading && !error && cases.length > 0 && (
+      {!loading && cases.length > 0 && (
         <div className="mt-5 space-y-3">
-          {cases.map((airwayCase) => {
-            const status = getStatusConfig(airwayCase.syncStatus);
-
-            return (
-              <Link
-                key={airwayCase.id}
-                href={`/cases/${airwayCase.id}/capture`}
-                className="
-                  block
-                  rounded-3xl
-                  border
-                  border-slate-200
-                  bg-white
-                  p-4
-                  shadow-sm
-                  transition
-                  hover:border-slate-300
-                  active:scale-[0.99]
-                "
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-bold text-slate-950">
-                      {airwayCase.caseCode}
-                    </p>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      {formatDate(airwayCase.createdAt)}
-                    </p>
-                  </div>
-
-                  <span
-                    className={`
-                      shrink-0
-                      rounded-full
-                      px-3
-                      py-1.5
-                      text-[11px]
-                      font-bold
-                      ${status.className}
-                    `}
-                  >
-                    {status.label}
-                  </span>
-                </div>
-
-                {(airwayCase.heightCm ||
-                  airwayCase.weightKg ||
-                  airwayCase.neckMobility !== "unknown") && (
-                  <div
-                    className="
-                      mt-4
-                      flex
-                      flex-wrap
-                      gap-2
-                      border-t
-                      border-slate-100
-                      pt-4
-                    "
-                  >
-                    {airwayCase.heightCm && (
-                      <span
-                        className="
-                          rounded-lg
-                          bg-slate-50
-                          px-2.5
-                          py-1.5
-                          text-xs
-                          text-slate-600
-                        "
-                      >
-                        قد: {airwayCase.heightCm} cm
-                      </span>
-                    )}
-
-                    {airwayCase.weightKg && (
-                      <span
-                        className="
-                          rounded-lg
-                          bg-slate-50
-                          px-2.5
-                          py-1.5
-                          text-xs
-                          text-slate-600
-                        "
-                      >
-                        وزن: {airwayCase.weightKg} kg
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                <div
-                  className="
-                    mt-4
-                    flex
-                    items-center
-                    justify-end
-                    gap-1
-                    text-xs
-                    font-semibold
-                    text-sky-700
-                  "
-                >
-                  ادامه Case
-                  <ArrowLeft size={15} />
-                </div>
-              </Link>
-            );
-          })}
+          {cases.map((entry) => (
+            <CaseHistoryCard key={entry.id} entry={entry} />
+          ))}
         </div>
       )}
     </div>

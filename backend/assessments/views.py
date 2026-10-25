@@ -694,7 +694,8 @@ class PushTestView(
         try:
             result = (
                 send_sync_reminder_to_device(
-                    request.user
+                    request.user,
+                    test=True,
                 )
             )
 
@@ -801,6 +802,21 @@ class AssessmentExportView(
 class AssessmentDetailView(
     APIView
 ):
+    def get(self, request, pk):
+        assessment = get_object_or_404(
+            Assessment, pk=pk, device=request.user,
+        )
+        payload = dict(AssessmentSerializer(assessment).data)
+        # Photo bytes remain behind the existing owner-authenticated endpoint.
+        # Storage URLs cannot carry the device authorization header.
+        payload["photos"] = [
+            {"id": str(photo.id), "position": photo.position}
+            for photo in assessment.photos.order_by("position", "id")
+        ]
+        response = Response(payload)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
     @transaction.atomic
     def put(
         self,

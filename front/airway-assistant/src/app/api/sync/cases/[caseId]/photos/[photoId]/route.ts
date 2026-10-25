@@ -5,6 +5,7 @@ import {
 import type {
   CaptureKind,
 } from "@/lib/domain/types";
+import { proxyCaseRead } from "@/lib/server/case-read";
 
 export const runtime =
   "nodejs";
@@ -17,6 +18,14 @@ const REQUEST_TIMEOUT_MS =
 
 const MAX_PROXY_IMAGE_BYTES =
   4 * 1024 * 1024;
+
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ caseId: string; photoId: string }> },
+) {
+  const { caseId, photoId } = await context.params;
+  return proxyCaseRead(request, caseId, photoId);
+}
 
 function getBackendBaseUrl():
   | string

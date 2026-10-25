@@ -1503,6 +1503,11 @@ export async function updateCaseStatus(
 
   await transaction.done;
 
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("airway-cases-changed"));
+  }
+
+
   return airwayCase;
 }
 

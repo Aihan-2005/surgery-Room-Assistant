@@ -1,7 +1,10 @@
 import {
   ensureOperatorRegistered,
   getOperatorProfile,
+  OperatorDeviceError,
 } from "@/lib/profile/operator-profile";
+import { getAllCases } from "@/lib/db/database";
+import { deviceFetch } from "@/lib/api/device-fetch";
 
 export const UPLOAD_REMINDER_SYNC_TAG =
   "airway-upload-reminder-v1";
@@ -39,6 +42,9 @@ export type PushSetupResult =
   | "not-configured"
   | "unsupported"
   | "pending"
+  | "server-unavailable"
+  | "worker-unavailable"
+  | "subscription-error"
   | "device-error";
 
 export interface RealPushTestResult {
@@ -68,6 +74,11 @@ let lastBoundAt = 0;
 let setupTask:
   Promise<PushSetupResult> | null = null;
 
+let preparedPush: {
+  registration: ServiceWorkerRegistration;
+  key: ArrayBuffer;
+} | null = null;
+
 function browserAvailable(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -75,13 +86,23 @@ function browserAvailable(): boolean {
   );
 }
 
+export type NotificationSupport = "available" | "insecure" | "ios-install-required" | "unsupported";
+
+export function getNotificationSupport(): NotificationSupport {
+  if (!browserAvailable()) return "unsupported";
+  if (!window.isSecureContext) return "insecure";
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  if (ios && !standalone) return "ios-install-required";
+  if (!("Notification" in window) || !("serviceWorker" in navigator) ||
+    !("PushManager" in window)) return "unsupported";
+  return "available";
+}
+
 export function notificationsAvailable(): boolean {
-  return (
-    browserAvailable() &&
-    window.isSecureContext &&
-    "Notification" in window &&
-    "serviceWorker" in navigator
-  );
+  return getNotificationSupport() === "available";
 }
 
 export function getNotificationPermission():
@@ -177,6 +198,16 @@ export async function backgroundSyncAvailable():
 
 export async function registerUploadReminderSync():
   Promise<boolean> {
+  if (getNotificationPermission() !== "granted") return false;
+  // Enabling notifications alone must never schedule an upload reminder.
+  try {
+    const cases = await getAllCases();
+    if (!cases.some((item) => ["queued", "syncing", "failed"].includes(item.syncStatus))) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
   const registration =
     await getReadyServiceWorkerRegistration();
 
@@ -274,6 +305,7 @@ async function loadPushConfig():
       {
         method: "GET",
         cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
       },
     );
 
@@ -317,7 +349,48 @@ async function loadPushConfig():
 
 export async function preloadPushConfiguration():
   Promise<void> {
-  await loadPushConfig();
+  preparedPush = null;
+  const config = await loadPushConfig();
+  if (config.state !== "ready") return;
+  const registration = await getReadyServiceWorkerRegistration();
+  if (!registration || !("pushManager" in registration)) return;
+  try {
+    const key = vapidKeyToArrayBuffer(config.key);
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription && !samePublicKey(subscription, key)) {
+      if (!(await subscription.unsubscribe())) return;
+      lastBoundAt = 0;
+    }
+    preparedPush = { registration, key };
+  } catch {
+    // The enable button can retry preparation without requesting permission.
+  }
+}
+
+/** Invoke directly from a click. Safari requires subscribe before any await. */
+export async function enableWebPushFromGesture(): Promise<PushSetupResult> {
+  if (!notificationsAvailable()) return "unsupported";
+  if (navigator.onLine === false) return "offline";
+  if (!preparedPush) {
+    await preloadPushConfiguration();
+    const config = await loadPushConfig();
+    if (config.state === "disabled") return "not-configured";
+    if (config.state !== "ready") return "server-unavailable";
+    return preparedPush ? "pending" : "worker-unavailable";
+  }
+  try {
+    // subscribe() also requests notification permission, using this user gesture.
+    const subscription = preparedPush.registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: preparedPush.key,
+    });
+    await subscription;
+    if (setupTask) await setupTask;
+    lastBoundAt = 0;
+    return await ensureWebPushSubscription();
+  } catch {
+    return "subscription-error";
+  }
 }
 
 
@@ -412,20 +485,21 @@ async function setupPushInternal():
   }
 
   if (config.state !== "ready") {
-    return "pending";
+    return "server-unavailable";
   }
 
   const registration =
     await getReadyServiceWorkerRegistration();
 
   if (!registration) {
-    return "pending";
+    return "worker-unavailable";
   }
 
   if (!("pushManager" in registration)) {
     return "unsupported";
   }
 
+  let failureState: PushSetupResult = "subscription-error";
   try {
     /*
      * Construct a real ArrayBuffer.
@@ -463,17 +537,9 @@ async function setupPushInternal():
       lastBoundAt = 0;
     }
 
-    if (!subscription) {
-      subscription =
-        await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-
-          /*
-           * ArrayBuffer is a valid BufferSource.
-           */
-          applicationServerKey: keyBuffer,
-        });
-    }
+    // Automatic reconnects may bind an existing subscription. Only a direct
+    // user gesture may create one, including when permission is already granted.
+    if (!subscription) return "pending";
 
     /*
      * Never create a different installation UUID.
@@ -482,10 +548,11 @@ async function setupPushInternal():
       return "device-error";
     }
 
+    failureState = "device-error";
     const profile =
       await ensureOperatorRegistered();
 
-    const token = profile.deviceToken;
+    let token = profile.deviceToken;
 
     if (!token) {
       return "device-error";
@@ -505,14 +572,14 @@ async function setupPushInternal():
     /*
      * Next.js proxies this request to Django.
      */
-    const response = await fetch(
+    failureState = "server-unavailable";
+    const response = await deviceFetch(
       "/api/push/subscriptions",
       {
         method: "POST",
 
         headers: {
           "Content-Type": "application/json",
-          "X-Device-Token": token,
         },
 
         body: JSON.stringify(
@@ -532,8 +599,11 @@ async function setupPushInternal():
     }
 
     if (!response.ok) {
-      return "pending";
+      return "server-unavailable";
     }
+
+    token = getOperatorProfile()?.deviceToken;
+    if (!token) return "device-error";
 
     /*
      * Mark active only after successful
@@ -555,7 +625,9 @@ async function setupPushInternal():
         : "UNKNOWN_ERROR",
     );
 
-    return "pending";
+    return error instanceof OperatorDeviceError
+      ? "device-error"
+      : failureState;
   }
 }
 
@@ -606,6 +678,9 @@ export async function sendRealPushTest():
     };
   }
 
+  // A previous test may have deactivated an expired endpoint on the server.
+  // Rebind before testing instead of trusting the in-memory 12-hour cache.
+  lastBoundAt = 0;
   const state =
     await ensureWebPushSubscription();
 
@@ -634,13 +709,12 @@ export async function sendRealPushTest():
   }
 
   try {
-    const response = await fetch(
+    const response = await deviceFetch(
       "/api/push/test",
       {
         method: "POST",
 
         headers: {
-          "X-Device-Token": token,
           Accept: "application/json",
         },
 

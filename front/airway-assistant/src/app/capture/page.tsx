@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import CapturePage from
-  "@/app/cases/[caseId]/capture/page";
+  "@/components/capture/capture-page";
 
 function CaptureFromQuery() {
   const searchParams = useSearchParams();

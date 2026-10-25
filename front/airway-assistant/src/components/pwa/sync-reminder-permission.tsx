@@ -14,12 +14,14 @@ import {
 
 import {
   ensureWebPushSubscription,
+  enableWebPushFromGesture,
   getNotificationPermission,
+  getNotificationSupport,
   preloadPushConfiguration,
   registerUploadReminderSync,
-  requestNotificationPermission,
   sendRealPushTest,
   type PushSetupResult,
+  type NotificationSupport,
 } from "@/lib/pwa/upload-reminder";
 
 type PermissionState =
@@ -35,6 +37,7 @@ export function SyncReminderPermission() {
 
   const [pushState, setPushState] =
     useState<PushSetupResult | null>(null);
+  const [support, setSupport] = useState<NotificationSupport>("unsupported");
 
   const [loading, setLoading] =
     useState(false);
@@ -57,8 +60,10 @@ export function SyncReminderPermission() {
       if (!active) return;
 
       setPermission(current);
+      setSupport(getNotificationSupport());
 
       if (current !== "granted") {
+        setPushState(null);
         return;
       }
 
@@ -78,14 +83,21 @@ export function SyncReminderPermission() {
     void updateExistingPermission();
 
     const onOnline = () => {
+      void preloadPushConfiguration();
       void updateExistingPermission();
     };
 
     const onControllerChange = () => {
+      void preloadPushConfiguration();
       void updateExistingPermission();
     };
 
     window.addEventListener("online", onOnline);
+    window.addEventListener("focus", onOnline);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") onOnline();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.addEventListener(
@@ -101,6 +113,8 @@ export function SyncReminderPermission() {
         "online",
         onOnline,
       );
+      window.removeEventListener("focus", onOnline);
+      document.removeEventListener("visibilitychange", onVisibility);
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.removeEventListener(
@@ -119,27 +133,14 @@ export function SyncReminderPermission() {
     setTestSucceeded(false);
 
     try {
-      /*
-       * Must be called directly after a user click.
-       */
-      const result =
-        await requestNotificationPermission();
-
-      setPermission(result);
-
-      if (result !== "granted") {
-        return;
-      }
-
-      /*
-       * Complete Push subscription first.
-       * Do not show a fake success just because
-       * browser notification permission is granted.
-       */
-      const setup =
-        await ensureWebPushSubscription();
+      const setup = await enableWebPushFromGesture();
+      setPermission(getNotificationPermission());
+      setSupport(getNotificationSupport());
 
       setPushState(setup);
+      if (setup === "pending") {
+        setFeedback("آماده‌سازی اعلان انجام شد. برای تکمیل، دوباره دکمه فعال‌سازی را بزنید.");
+      }
 
       /*
        * Background Sync is an optional reminder
@@ -182,14 +183,20 @@ export function SyncReminderPermission() {
     return (
       <section className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
         <p className="text-sm font-bold text-amber-900">
-          اعلان واقعی هنوز در این محیط در دسترس نیست
+          {support === "insecure"
+            ? "اعلان‌ها به اتصال امن نیاز دارند"
+            : support === "ios-install-required"
+              ? "اعلان‌ها را از نسخه نصب‌شده فعال کنید"
+              : "این مرورگر از اعلان‌های Push پشتیبانی نمی‌کند"}
         </p>
 
         <p className="mt-2 text-xs leading-6 text-amber-800">
-          برای فعال شدن Web Push، برنامه را با HTTPS
-          باز کنید. روی آیفون باید برنامه به Home Screen
-          اضافه شده باشد. ثبت بیمار، ذخیره عکس و صف
-          ارسال به اجازه اعلان وابسته نیستند.
+          {support === "insecure"
+            ? "آدرس فعلی اتصال امن ندارد. برنامه را با آدرس HTTPS و گواهی معتبر باز کنید. فعال‌سازی اعلان در این آدرس ممکن نیست."
+            : support === "ios-install-required"
+              ? "در Safari، از منوی اشتراک‌گذاری گزینه افزودن به صفحه اصلی (Add to Home Screen) را انتخاب کنید. سپس برنامه را از آیکون صفحه اصلی باز کرده و اجازه اعلان بدهید."
+              : "مرورگر و سیستم‌عامل را به‌روز کنید. اگر روی آیفون از آیکون صفحه اصلی وارد شده‌اید، پشتیبانی اعلان‌های سیستم‌عامل را بررسی کنید."}
+          {" "}ثبت بیمار، ذخیره عکس و صف ارسال به اجازه اعلان وابسته نیستند.
         </p>
       </section>
     );
@@ -216,7 +223,7 @@ export function SyncReminderPermission() {
     pushState === "active";
 
   function description() {
-    if (permission === "default") {
+    if (permission === "default" && (!pushState || pushState === "pending")) {
       return (
         "برای دریافت یادآوری ارسال، اجازه اعلان‌ها را " +
         "فعال کنید. این مجوز اختیاری است."
@@ -253,6 +260,15 @@ export function SyncReminderPermission() {
           "این مرورگر از Push API پشتیبانی نمی‌کند " +
           "یا برنامه هنوز به‌درستی نصب نشده است."
         );
+
+      case "server-unavailable":
+        return "سرویس اعلان سرور پاسخ معتبر نداد. اتصال اینترنت و تنظیمات اعلان سرور باید بررسی شوند؛ سپس دوباره تلاش کنید.";
+
+      case "worker-unavailable":
+        return "آماده‌سازی برنامه برای اعلان هنوز کامل نشده است. برنامه را آنلاین ببندید و دوباره از آیکون صفحه اصلی باز کنید.";
+
+      case "subscription-error":
+        return "مرورگر نتوانست به سرویس Push متصل شود. اتصال شبکه را بررسی کنید و دوباره دکمه فعال‌سازی را بزنید.";
 
       default:
         return (

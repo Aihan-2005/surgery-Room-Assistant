@@ -1,4 +1,4 @@
-const CACHE_VERSION = "offline-v5-20261014";
+const CACHE_VERSION = "offline-v6-20261025";
 
 const SHELL_CACHE = `airway-shell-${CACHE_VERSION}`;
 const ASSET_CACHE = `airway-assets-${CACHE_VERSION}`;
@@ -287,12 +287,38 @@ async function backendReady() {
   }
 }
 
+// Read the same durable queue as the app; a registered sync tag can outlive
+// the upload that created it. Never create or upgrade the database here.
+async function hasPendingUploads() {
+  return new Promise((resolve) => {
+    const request = indexedDB.open("airway-assistant-db");
+    request.onupgradeneeded = () => request.transaction.abort();
+    request.onerror = () => resolve(false);
+    request.onsuccess = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains("cases")) {
+        db.close();
+        resolve(false);
+        return;
+      }
+      const transaction = db.transaction("cases", "readonly");
+      const cases = transaction.objectStore("cases").getAll();
+      cases.onsuccess = () => resolve(cases.result.some((item) =>
+        ["queued", "syncing", "failed"].includes(item.syncStatus),
+      ));
+      cases.onerror = () => resolve(false);
+      transaction.oncomplete = () => db.close();
+      transaction.onabort = () => { db.close(); resolve(false); };
+    };
+  });
+}
+
 self.addEventListener("sync", (event) => {
   if (event.tag !== SYNC_TAG) return;
 
   event.waitUntil(
     (async () => {
-      if (await hasVisibleWindow()) return;
+      if (!(await hasPendingUploads()) || await hasVisibleWindow()) return;
 
       if (!(await backendReady())) {
         throw new Error("BACKEND_NOT_READY");
@@ -353,21 +379,28 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  event.waitUntil(
-    self.registration
-      .showNotification(
-        "یادآوری ارسال",
-        {
-          body:
-            "مواردی در انتظار ارسال دارید. برنامه را باز کنید.",
-          tag: NOTIFICATION_TAG,
-          data: {
-            url: "/queue",
-          },
-        },
-      )
-      .catch(() => undefined),
-  );
+  event.waitUntil((async () => {
+    let payload = {};
+    try {
+      payload = event.data?.json() || {};
+    } catch {
+      // Legacy pushes have no JSON payload.
+    }
+    const test = payload.type === "push-test";
+    const pending = !test && await hasPendingUploads();
+    // Safari requires every received push to display a notification. For a
+    // stale reminder, use neutral wording instead of claiming uploads remain.
+    await self.registration.showNotification(
+      test ? "اعلان آزمایشی" : "یادآوری ارسال",
+      {
+        body: test
+          ? "اتصال اعلان این دستگاه به سرور برقرار است."
+          : pending
+            ? "مواردی در انتظار ارسال دارید. برنامه را باز کنید."
+            : "برای مشاهده وضعیت ارسال، برنامه را باز کنید.",
+        tag: test ? "airway-push-test" : NOTIFICATION_TAG,
+        data: { url: "/queue" },
+      },
+    );
+  })());
 });
-
-

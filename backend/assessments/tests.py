@@ -351,6 +351,46 @@ class CompleteTests(BaseAPITest):
 
 
 class ListTests(BaseAPITest):
+    def test_case_detail_lists_owned_photos_without_public_storage_urls(self):
+        doctor = self.make_client()
+        case_id, _ = self.put_case(doctor)
+        first, _ = self.upload(doctor, case_id, "front")
+        second, _ = self.upload(doctor, case_id, "side")
+        response = doctor.get(f"{API}/assessments/{case_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], case_id)
+        self.assertEqual(response.data["photo_count"], 2)
+        self.assertEqual(response.data["photos"], [
+            {"id": first, "position": "front"},
+            {"id": second, "position": "side"},
+        ])
+        self.assertEqual(response["Cache-Control"], "private, no-store")
+        for photo in response.data["photos"]:
+            self.assertNotIn("image", photo)
+            image = doctor.get(f"{API}/assessments/{case_id}/photos/{photo['id']}/")
+            self.assertEqual(image.status_code, 200)
+            self.assertEqual(image["Content-Type"], "image/jpeg")
+            self.assertTrue(b"".join(image.streaming_content))
+
+    def test_case_photo_list_requires_owner_and_correct_case(self):
+        doctor = self.make_client()
+        case_id, _ = self.put_case(doctor)
+        photo_id, _ = self.upload(doctor, case_id, "front")
+        url = f"{API}/assessments/{case_id}/"
+        self.assertEqual(APIClient().get(url).status_code, 401)
+        other = self.make_client("Other doctor")
+        self.assertEqual(other.get(url).status_code, 404)
+        self.assertEqual(doctor.get(f"{API}/assessments/{uuid.uuid4()}/").status_code, 404)
+        other_case, _ = self.put_case(doctor)
+        self.assertEqual(doctor.get(f"{API}/assessments/{other_case}/photos/{photo_id}/").status_code, 404)
+
+    def test_case_detail_with_no_photos_returns_empty_list(self):
+        doctor = self.make_client()
+        case_id, _ = self.put_case(doctor)
+        response = doctor.get(f"{API}/assessments/{case_id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["photos"], [])
+
     def test_device_sees_only_its_own_cases(self):
         a, b = self.make_client("Dr. A"), self.make_client("Dr. B")
         case_a1, _ = self.put_case(a)

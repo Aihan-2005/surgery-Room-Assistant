@@ -219,7 +219,7 @@ class PushNotificationTests(APITestCase):
 
         self.assertEqual(
             payload["type"],
-            "sync-reminder",
+            "push-test",
         )
 
         self.assertNotIn(

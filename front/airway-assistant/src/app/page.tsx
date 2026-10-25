@@ -1,11 +1,5 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
-
 import Link from "next/link";
 
 import {
@@ -24,129 +18,11 @@ import {
   NetworkPill,
 } from "@/components/app-shell/network-pill";
 
-import {
-  getAllCases,
-} from "@/lib/db/database";
-
-import type {
-  AirwayCase,
-} from "@/lib/domain/types";
-
-
-function getStatusLabel(
-  status:
-    AirwayCase["syncStatus"],
-) {
-  switch (
-    status
-  ) {
-    case "draft":
-      return "پیش‌نویس";
-
-    case "queued":
-      return "در صف ارسال";
-
-    case "syncing":
-      return "در حال ارسال";
-
-    case "synced":
-      return "ارسال شده";
-
-    case "failed":
-      return "خطای ارسال";
-  }
-}
-
-
-function getPatientName(
-  airwayCase:
-    AirwayCase,
-) {
-  const fullName =
-    airwayCase
-      .clinical
-      .fullName
-      ?.trim();
-
-  if (
-    fullName
-  ) {
-    return fullName;
-  }
-
-  return "نام بیمار ثبت نشده";
-}
-
+import { useCaseHistory } from "@/hooks/use-case-history";
+import { CaseHistoryCard } from "@/components/case-history-card";
 
 export default function HomePage() {
-  const [
-    cases,
-    setCases,
-  ] =
-    useState<
-      AirwayCase[]
-    >([]);
-
-  const [
-    loading,
-    setLoading,
-  ] =
-    useState(true);
-
-
-  const loadCases =
-    useCallback(
-      async () => {
-        try {
-          const result =
-            await getAllCases();
-
-          setCases(
-            result,
-          );
-        } catch (
-          error
-        ) {
-          console.error(
-            "Failed to load cases:",
-            error,
-          );
-        } finally {
-          setLoading(
-            false,
-          );
-        }
-      },
-      [],
-    );
-
-
-  useEffect(() => {
-    const initialLoadId = window.setTimeout(() => {
-      void loadCases();
-    }, 0);
-
-    const handleFocus =
-      () => {
-        void loadCases();
-      };
-
-    window.addEventListener(
-      "focus",
-      handleFocus,
-    );
-
-    return () => {
-      window.clearTimeout(initialLoadId);
-      window.removeEventListener(
-        "focus",
-        handleFocus,
-      );
-    };
-  }, [
-    loadCases,
-  ]);
-
+  const { cases, loading, error } = useCaseHistory();
 
   return (
     <div
@@ -395,17 +271,19 @@ export default function HomePage() {
           </h2>
 
           <Link
-            href="/queue"
+            href="/cases"
             className="
               text-xs
               font-semibold
               text-sky-700
             "
           >
-            مشاهده صف
+            همه پرونده‌ها
           </Link>
         </div>
 
+
+        {error && <p role="status" className="mt-4 text-xs leading-6 text-amber-800">{error}</p>}
 
         {loading && (
           <div
@@ -477,101 +355,9 @@ export default function HomePage() {
                 space-y-3
               "
             >
-              {cases
-                .slice(
-                  0,
-                  5,
-                )
-                .map(
-                  (
-                    airwayCase,
-                  ) => (
-                    <Link
-                      key={
-                        airwayCase.id
-                      }
-                      href={`/cases/${airwayCase.id}/capture`}
-                      className="
-                        block
-                        rounded-2xl
-                        border
-                        border-slate-200
-                        bg-white
-                        p-4
-                        transition
-                        active:scale-[0.99]
-                      "
-                    >
-                      <div
-                        className="
-                          flex
-                          items-center
-                          justify-between
-                          gap-3
-                        "
-                      >
-                        <div
-                          className="
-                            min-w-0
-                          "
-                        >
-                          <p
-                            className="
-                              truncate
-                              text-sm
-                              font-bold
-                              text-slate-900
-                            "
-                          >
-                            {getPatientName(
-                              airwayCase,
-                            )}
-                          </p>
-
-                          <p
-                            className="
-                              mt-1
-                              text-xs
-                              text-slate-500
-                            "
-                          >
-                            {new Intl.DateTimeFormat(
-                              "fa-IR",
-                              {
-                                dateStyle:
-                                  "medium",
-
-                                timeStyle:
-                                  "short",
-                              },
-                            ).format(
-                              new Date(
-                                airwayCase.createdAt,
-                              ),
-                            )}
-                          </p>
-                        </div>
-
-                        <span
-                          className="
-                            shrink-0
-                            rounded-full
-                            bg-slate-100
-                            px-3
-                            py-1.5
-                            text-[11px]
-                            font-semibold
-                            text-slate-600
-                          "
-                        >
-                          {getStatusLabel(
-                            airwayCase.syncStatus,
-                          )}
-                        </span>
-                      </div>
-                    </Link>
-                  ),
-                )}
+              {cases.slice(0, 5).map((entry) => (
+                <CaseHistoryCard key={entry.id} entry={entry} />
+              ))}
             </div>
           )}
       </section>
