@@ -385,3 +385,77 @@ test("notification setup distinguishes server failures from missing worker and b
     assert.equal(await reminders(env).ensureWebPushSubscription(), expected);
   }
 });
+
+function realPushTestHarness(testResponse) {
+  const env = browser();
+  const timeouts = [];
+  env.Error = Error;
+  env.AbortSignal = { timeout: (milliseconds) => {
+    timeouts.push(milliseconds);
+    return AbortSignal.timeout(milliseconds);
+  } };
+  env.fetch = async () => Response.json({ enabled: true, public_key: "AQ" });
+  env.navigator.serviceWorker.getRegistration = async () => ({
+    active: true,
+    pushManager: { getSubscription: async () => ({ endpoint: "https://push.test/1", options: {}, toJSON: () => ({}) }) },
+  });
+  const profile = { deviceToken: "test-device" };
+  const setup = loadTS("lib/pwa/upload-reminder.ts", {
+    [profilePath]: {
+      OperatorDeviceError: class extends Error {},
+      ensureOperatorRegistered: async () => profile,
+      getOperatorProfile: () => profile,
+    },
+    "@/lib/db/database": {},
+    "@/lib/api/device-fetch": { deviceFetch: async (url) =>
+      url === "/api/push/subscriptions" ? Response.json({ active: true }) : testResponse(),
+    },
+  }, env);
+  return { setup, timeouts };
+}
+
+test("push test reports server outbound failure separately from phone-to-app connectivity", async () => {
+  const { setup, timeouts } = realPushTestHarness(() => Response.json({
+    code: "PUSH_SERVICE_UNREACHABLE", sent: 0, failed: 1,
+  }, { status: 502 }));
+  const result = await setup.sendRealPushTest();
+  assert.equal(result.ok, false);
+  assert.match(result.message, /اتصال خروجی سرور/);
+  assert.doesNotMatch(result.message, /ارتباط با سرور برای تست/);
+  assert.equal(timeouts.at(-1), 30_000);
+});
+
+test("push test separates invalid response and timeout errors", async () => {
+  const invalid = realPushTestHarness(() => new Response("<html>error</html>", { status: 503 }));
+  assert.match((await invalid.setup.sendRealPushTest()).message, /پاسخ معتبر/);
+  const timeout = realPushTestHarness(() => { const error = new Error("timed out"); error.name = "TimeoutError"; throw error; });
+  assert.match((await timeout.setup.sendRealPushTest()).message, /مهلت انتظار/);
+});
+
+test("push test proxy preserves structured upstream network failures", async () => {
+  const payload = { code: "PUSH_SERVICE_UNREACHABLE", sent: 0, failed: 1 };
+  const route = loadTS("app/api/push/test/route.ts", { "next/server": { NextResponse: Response } }, {
+    process: { env: { BACKEND_API_URL: "http://backend:8000" } },
+    fetch: async () => Response.json(payload, { status: 502 }),
+  });
+  const response = await route.POST(readRequest());
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), payload);
+});
+
+test("push proxy timeout returns structured 504 before the browser timeout", async () => {
+  let budget;
+  const route = loadTS("app/api/push/test/route.ts", { "next/server": { NextResponse: Response } }, {
+    process: { env: { BACKEND_API_URL: "http://backend:8000" } },
+    setTimeout: (callback, milliseconds) => { budget = milliseconds; queueMicrotask(callback); return 1; },
+    clearTimeout: () => {},
+    fetch: async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+  });
+  const response = await route.POST(readRequest());
+  assert.equal(response.status, 504);
+  assert.equal((await response.json()).code, "PUSH_TEST_TIMEOUT");
+  assert.equal(budget, 25_000);
+  assert.ok(budget < 30_000);
+});

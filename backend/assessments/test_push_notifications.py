@@ -2,6 +2,9 @@ import json
 import uuid
 
 from unittest.mock import patch
+from requests import Response as RequestsResponse
+from requests.exceptions import ConnectionError, Timeout
+from pywebpush import WebPushException
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -253,6 +256,45 @@ class PushNotificationTests(APITestCase):
             response.data["code"],
             "NO_ACTIVE_PUSH_SUBSCRIPTION",
         )
+
+    @patch("assessments.push.webpush")
+    def test_network_failure_is_reported_without_deactivating_subscription_or_leaking_endpoint(self, mocked_webpush):
+        self.register_subscription()
+        secret_endpoint = "https://web.push.apple.com/private-subscription-capability"
+        mocked_webpush.side_effect = ConnectionError(secret_endpoint)
+        with self.assertLogs("assessments.push", level="WARNING") as logs:
+            response = self.client.post("/api/push/test/", {}, format="json")
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["code"], "PUSH_SERVICE_UNREACHABLE")
+        self.assertEqual(response.data["sent"], 0)
+        self.assertEqual(response.data["failed"], 1)
+        self.assertIn("outbound", response.data["detail"])
+        self.assertNotIn(secret_endpoint, str(response.data))
+        self.assertNotIn(secret_endpoint, "\n".join(logs.output))
+        saved = PushSubscription.objects.get(endpoint=self.endpoint)
+        self.assertTrue(saved.is_active)
+        self.assertEqual(saved.failure_count, 1)
+
+    @patch("assessments.push.webpush")
+    def test_push_service_timeout_has_specific_error(self, mocked_webpush):
+        self.register_subscription()
+        mocked_webpush.side_effect = Timeout("private request details")
+        response = self.client.post("/api/push/test/", {}, format="json")
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["code"], "PUSH_SERVICE_TIMEOUT")
+        self.assertNotIn("private request details", str(response.data))
+
+    @patch("assessments.push.webpush")
+    def test_expired_subscription_is_deactivated_and_reported(self, mocked_webpush):
+        self.register_subscription()
+        upstream = RequestsResponse()
+        upstream.status_code = 410
+        mocked_webpush.side_effect = WebPushException("Expired", response=upstream)
+        response = self.client.post("/api/push/test/", {}, format="json")
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["code"], "PUSH_SUBSCRIPTION_EXPIRED")
+        self.assertEqual(response.data["deactivated"], 1)
+        self.assertFalse(PushSubscription.objects.get(endpoint=self.endpoint).is_active)
 
     def test_unsubscribe(self):
         self.register_subscription()

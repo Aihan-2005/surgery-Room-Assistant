@@ -735,9 +735,16 @@ class PushTestView(
                     status.HTTP_409_CONFLICT,
             )
 
-        return Response(
-            result
-        )
+        if result["sent"] == 0:
+            result["detail"] = {
+                "PUSH_SERVICE_UNREACHABLE": "The server cannot reach the browser push service. Check outbound HTTPS connectivity.",
+                "PUSH_SERVICE_TIMEOUT": "The browser push service did not respond before the timeout.",
+                "PUSH_SUBSCRIPTION_EXPIRED": "The push subscription expired. Enable notifications again.",
+                "PUSH_SERVICE_REJECTED": "The browser push service rejected the request. Check server push configuration.",
+            }.get(result.get("code"), "The server could not send the test notification.")
+            return Response(result, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(result)
 
 
 # ---------------------------------------------------------------------------

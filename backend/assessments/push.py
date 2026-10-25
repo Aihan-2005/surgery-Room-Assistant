@@ -3,6 +3,7 @@ import logging
 
 from django.conf import settings
 from django.utils import timezone
+from requests.exceptions import RequestException, Timeout
 
 from pywebpush import (
     WebPushException,
@@ -225,17 +226,29 @@ def send_sync_reminder(
 
             "deactivated":
                 deactivate,
+
+            "code": (
+                "PUSH_SUBSCRIPTION_EXPIRED" if deactivate else
+                "PUSH_SERVICE_UNREACHABLE" if status_code is None else
+                "PUSH_SERVICE_REJECTED"
+            ),
         }
 
-    except Exception:
+    except RequestException as exc:
+        _mark_failure(subscription, deactivate=False)
+        code = "PUSH_SERVICE_TIMEOUT" if isinstance(exc, Timeout) else "PUSH_SERVICE_UNREACHABLE"
+        # Exception text can contain the subscription endpoint and its secret
+        # capability. Log a safe reason instead of the requests traceback.
+        logger.warning("Web Push connection failed subscription=%s code=%s", subscription.pk, code)
+        return {"sent": False, "status": None, "deactivated": False, "code": code}
+
+    except Exception as exc:
         _mark_failure(
             subscription,
             deactivate=False,
         )
 
-        logger.exception(
-            "Unexpected Web Push failure."
-        )
+        logger.error("Unexpected Web Push failure subscription=%s error_type=%s", subscription.pk, type(exc).__name__)
 
         return {
             "sent":
@@ -246,6 +259,8 @@ def send_sync_reminder(
 
             "deactivated":
                 False,
+
+            "code": "PUSH_SEND_FAILED",
         }
 
     _mark_success(
@@ -289,6 +304,7 @@ def send_sync_reminder_to_device(
     sent = 0
     failed = 0
     deactivated = 0
+    failure_codes = []
 
     for subscription in subscriptions:
         result = send_sync_reminder(
@@ -302,13 +318,14 @@ def send_sync_reminder_to_device(
             sent += 1
         else:
             failed += 1
+            failure_codes.append(result.get("code", "PUSH_SEND_FAILED"))
 
         if result.get(
             "deactivated"
         ):
             deactivated += 1
 
-    return {
+    summary = {
         "active_subscriptions":
             len(
                 subscriptions
@@ -323,3 +340,6 @@ def send_sync_reminder_to_device(
         "deactivated":
             deactivated,
     }
+    if failed and not sent:
+        summary["code"] = failure_codes[0]
+    return summary

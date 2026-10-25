@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const REQUEST_TIMEOUT_MS = 15_000;
+// Allow the push service's connect/read timeouts to finish; the browser waits
+// longer still so it can receive this route's structured timeout response.
+const REQUEST_TIMEOUT_MS = 25_000;
 
 function getBackendUrl(): string | null {
   const raw = process.env.BACKEND_API_URL?.trim();
@@ -86,18 +88,12 @@ export async function POST(request: Request) {
 
     try {
       payload = await response.json();
-    } catch {
-      payload = {
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      return NextResponse.json({
         code: "INVALID_BACKEND_RESPONSE",
         detail: "پاسخ معتبر از Backend دریافت نشد.",
-      };
-    }
-
-    if (response.status === 204) {
-      return new Response(null, {
-        status: 204,
-        headers: { "Cache-Control": "no-store" },
-      });
+      }, { status: 502, headers: { "Cache-Control": "no-store" } });
     }
 
     return NextResponse.json(payload, {
@@ -105,13 +101,16 @@ export async function POST(request: Request) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch {
+    const timedOut = controller.signal.aborted;
     return NextResponse.json(
       {
-        code: "PUSH_BACKEND_UNAVAILABLE",
-        detail: "ارتباط با سرویس اعلان برقرار نشد.",
+        code: timedOut ? "PUSH_TEST_TIMEOUT" : "PUSH_BACKEND_UNAVAILABLE",
+        detail: timedOut
+          ? "مهلت انتظار برای پاسخ سرویس اعلان تمام شد."
+          : "ارتباط با سرویس اعلان برقرار نشد.",
       },
       {
-        status: 502,
+        status: timedOut ? 504 : 502,
         headers: { "Cache-Control": "no-store" },
       },
     );

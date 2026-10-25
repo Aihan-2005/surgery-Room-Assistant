@@ -719,11 +719,18 @@ export async function sendRealPushTest():
         },
 
         cache: "no-store",
+        signal: AbortSignal.timeout(30_000),
       },
     );
 
-    const data =
-      (await response.json()) as PushTestResponse;
+    let data: PushTestResponse;
+    try {
+      const payload: unknown = await response.json();
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("INVALID_RESPONSE");
+      data = payload as PushTestResponse;
+    } catch {
+      return { ok: false, sent: 0, failed: 0, message: "پاسخ معتبر از سرویس اعلان دریافت نشد. دوباره تلاش کنید." };
+    }
 
     const sent =
       typeof data.sent === "number"
@@ -741,13 +748,19 @@ export async function sendRealPushTest():
         sent,
         failed,
 
-        message:
+        message: ({
+          PUSH_SERVICE_UNREACHABLE: "سرور به سرویس اعلان گوشی دسترسی ندارد. اتصال خروجی سرور باید بررسی شود.",
+          PUSH_SERVICE_TIMEOUT: "سرویس اعلان گوشی در زمان مقرر پاسخ نداد. اتصال خروجی سرور باید بررسی شود.",
+          PUSH_SUBSCRIPTION_EXPIRED: "اشتراک اعلان منقضی شده است. اعلان‌ها را دوباره فعال کنید.",
+          PUSH_SERVICE_REJECTED: "سرویس اعلان گوشی درخواست را نپذیرفت. تنظیمات اعلان سرور باید بررسی شود.",
+          PUSH_TEST_TIMEOUT: "مهلت انتظار برای پاسخ سرویس اعلان تمام شد. دوباره تلاش کنید.",
+        } as Record<string, string>)[data.code ?? ""] ?? (
           response.status === 401
             ? "اتصال Device معتبر نیست. وضعیت ثبت دستگاه را بررسی کنید."
             : response.status === 409
               ? "هیچ اشتراک Push فعالی در Django پیدا نشد."
               : data.detail ??
-                "سرور نتوانست اعلان آزمایشی را ارسال کند.",
+                "سرور نتوانست اعلان آزمایشی را ارسال کند."),
       };
     }
 
@@ -760,14 +773,16 @@ export async function sendRealPushTest():
         "سرویس Push درخواست ارسال را پذیرفت. " +
         "اکنون دریافت اعلان روی گوشی را بررسی کنید.",
     };
-  } catch {
+  } catch (error) {
+    const timedOut = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
     return {
       ok: false,
       sent: 0,
       failed: 0,
 
-      message:
-        "ارتباط با سرور برای تست اعلان برقرار نشد.",
+      message: timedOut
+        ? "مهلت انتظار برای پاسخ سرویس اعلان تمام شد. دوباره تلاش کنید."
+        : "ارتباط با سرور برای تست اعلان برقرار نشد.",
     };
   }
 }
