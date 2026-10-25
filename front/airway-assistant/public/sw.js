@@ -1,7 +1,14 @@
-const CACHE_VERSION = "offline-v6-20261025";
 
-const SHELL_CACHE = `airway-shell-${CACHE_VERSION}`;
-const ASSET_CACHE = `airway-assets-${CACHE_VERSION}`;
+
+
+const CACHE_VERSION =
+  "offline-v7-merged-20261025";
+
+const SHELL_CACHE =
+  `airway-shell-${CACHE_VERSION}`;
+
+const ASSET_CACHE =
+  `airway-assets-${CACHE_VERSION}`;
 
 const PAGES = [
   "/",
@@ -16,11 +23,24 @@ const PUBLIC_ASSETS = [
   "/manifest.webmanifest",
 ];
 
-const SYNC_TAG = "airway-upload-reminder-v1";
-const NOTIFICATION_TAG = "airway-upload-reminder";
+const SYNC_TAG =
+  "airway-upload-reminder-v1";
+
+const NOTIFICATION_TAG =
+  "airway-upload-reminder";
+
+const DB_NAME = "airway-assistant-db";
+
+const PENDING_STATUSES = [
+  "queued",
+  "syncing",
+  "failed",
+];
 
 const CASE_ROUTE =
   /^\/cases\/([0-9a-fA-F-]{36})\/capture\/?$/;
+
+
 
 function isStaticAsset(url) {
   return (
@@ -37,17 +57,17 @@ function getAssetsFromHtml(html) {
   );
 
   for (const tag of tags) {
-    const attributes = tag[0];
-
     for (const attribute of ["src", "href"]) {
-      const matcher = new RegExp(
-        `\\b${attribute}\\s*=\\s*["']([^"']+)["']`,
-        "i",
+      const match = tag[0].match(
+        new RegExp(
+          `\\b${attribute}\\s*=\\s*["']([^"']+)["']`,
+          "i",
+        ),
       );
 
-      const match = attributes.match(matcher);
-
-      if (!match) continue;
+      if (!match) {
+        continue;
+      }
 
       try {
         const url = new URL(
@@ -59,7 +79,7 @@ function getAssetsFromHtml(html) {
           assets.add(url.href);
         }
       } catch {
-        // Ignore invalid resource URLs.
+        // Ignore malformed resource URLs.
       }
     }
   }
@@ -67,10 +87,14 @@ function getAssetsFromHtml(html) {
   return assets;
 }
 
+
+
 async function installOfflineShell() {
   const shell = await caches.open(SHELL_CACHE);
+
   const assets = await caches.open(ASSET_CACHE);
-  const urls = new Set();
+
+  const staticUrls = new Set();
 
   for (const path of PAGES) {
     const response = await fetch(path, {
@@ -78,12 +102,12 @@ async function installOfflineShell() {
       credentials: "same-origin",
     });
 
-    const contentType =
+    const type =
       response.headers.get("content-type") || "";
 
     if (
       !response.ok ||
-      !contentType.includes("text/html")
+      !type.includes("text/html")
     ) {
       throw new Error(
         `Offline installation failed: ${path}`,
@@ -95,7 +119,7 @@ async function installOfflineShell() {
     await shell.put(path, response);
 
     for (const url of getAssetsFromHtml(html)) {
-      urls.add(url);
+      staticUrls.add(url);
     }
   }
 
@@ -109,12 +133,12 @@ async function installOfflineShell() {
         await assets.put(path, response);
       }
     } catch {
-      // Non-essential public asset.
+      // A missing optional public asset does not block installation.
     }
   }
 
   await Promise.all(
-    [...urls].map(async (url) => {
+    [...staticUrls].map(async (url) => {
       const response = await fetch(url, {
         cache: "reload",
       });
@@ -130,10 +154,13 @@ async function installOfflineShell() {
   );
 }
 
+
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       await installOfflineShell();
+
       await self.skipWaiting();
     })(),
   );
@@ -148,9 +175,11 @@ self.addEventListener("activate", (event) => {
         names
           .filter(
             (name) =>
-              (name.startsWith("airway-shell-") ||
+              (
+                name.startsWith("airway-shell-") ||
                 name.startsWith("airway-assets-") ||
-                name.startsWith("airway-assistant-")) &&
+                name.startsWith("airway-assistant-")
+              ) &&
               name !== SHELL_CACHE &&
               name !== ASSET_CACHE,
           )
@@ -162,16 +191,24 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
-  if (request.method !== "GET") return;
+  if (request.method !== "GET") {
+    return;
+  }
 
   const url = new URL(request.url);
 
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin) {
+    return;
+  }
 
-  // Never cache Backend responses.
+
+
+
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/admin/")
@@ -185,7 +222,8 @@ self.addEventListener("fetch", (event) => {
         try {
           return await fetch(request);
         } catch {
-          const legacy = url.pathname.match(CASE_ROUTE);
+          const legacy =
+            url.pathname.match(CASE_ROUTE);
 
           if (legacy) {
             const destination = new URL(
@@ -201,15 +239,13 @@ self.addEventListener("fetch", (event) => {
             );
           }
 
-          const shell = await caches.open(
-            SHELL_CACHE,
-          );
+          const shell =
+            await caches.open(SHELL_CACHE);
 
-          const response = await shell.match(
-            url.pathname,
+          return (
+            (await shell.match(url.pathname)) ||
+            Response.error()
           );
-
-          return response || Response.error();
         }
       })(),
     );
@@ -223,9 +259,8 @@ self.addEventListener("fetch", (event) => {
   ) {
     event.respondWith(
       (async () => {
-        const cache = await caches.open(
-          ASSET_CACHE,
-        );
+        const cache =
+          await caches.open(ASSET_CACHE);
 
         const cached = await cache.match(
           request,
@@ -234,7 +269,9 @@ self.addEventListener("fetch", (event) => {
           },
         );
 
-        if (cached) return cached;
+        if (cached) {
+          return cached;
+        }
 
         const response = await fetch(request);
 
@@ -251,6 +288,91 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+
+function countPendingCases() {
+  return new Promise((resolve) => {
+    if (!self.indexedDB) {
+      resolve(0);
+      return;
+    }
+
+    let openRequest;
+
+    try {
+      openRequest = indexedDB.open(DB_NAME);
+    } catch {
+      resolve(0);
+      return;
+    }
+
+    openRequest.onupgradeneeded = () => {
+      openRequest.transaction?.abort();
+    };
+
+    openRequest.onerror = () => {
+      resolve(0);
+    };
+
+    openRequest.onblocked = () => {
+      resolve(0);
+    };
+
+    openRequest.onsuccess = () => {
+      const db = openRequest.result;
+
+      if (!db.objectStoreNames.contains("cases")) {
+        db.close();
+        resolve(0);
+        return;
+      }
+
+      try {
+        const tx = db.transaction(
+          "cases",
+          "readonly",
+        );
+
+        const store =
+          tx.objectStore("cases");
+
+        const statusIndex =
+          store.index("by-sync-status");
+
+        let total = 0;
+
+        for (const status of PENDING_STATUSES) {
+          const countRequest =
+            statusIndex.count(status);
+
+          countRequest.onsuccess = () => {
+            total += countRequest.result;
+          };
+        }
+
+        tx.oncomplete = () => {
+          db.close();
+          resolve(total);
+        };
+
+        tx.onerror = () => {
+          db.close();
+          resolve(0);
+        };
+
+        tx.onabort = () => {
+          db.close();
+          resolve(0);
+        };
+      } catch {
+        db.close();
+        resolve(0);
+      }
+    };
+  });
+}
+
+
+
 async function hasVisibleWindow() {
   const clients = await self.clients.matchAll({
     type: "window",
@@ -263,120 +385,126 @@ async function hasVisibleWindow() {
   );
 }
 
-async function backendReady() {
-  try {
-    const response = await fetch(
-      `/api/backend-health?sw=${Date.now()}`,
-      {
-        method: "GET",
-        cache: "no-store",
-      },
-    );
+async function showPendingReminderIfNeeded() {
 
-    if (!response.ok) return false;
 
-    const result = await response.json();
-
-    return (
-      result.configured === true &&
-      result.reachable === true &&
-      result.databaseReady === true
-    );
-  } catch {
-    return false;
+  if (await hasVisibleWindow()) {
+    return;
   }
-}
 
-// Read the same durable queue as the app; a registered sync tag can outlive
-// the upload that created it. Never create or upgrade the database here.
-async function hasPendingUploads() {
-  return new Promise((resolve) => {
-    const request = indexedDB.open("airway-assistant-db");
-    request.onupgradeneeded = () => request.transaction.abort();
-    request.onerror = () => resolve(false);
-    request.onsuccess = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains("cases")) {
-        db.close();
-        resolve(false);
-        return;
-      }
-      const transaction = db.transaction("cases", "readonly");
-      const cases = transaction.objectStore("cases").getAll();
-      cases.onsuccess = () => resolve(cases.result.some((item) =>
-        ["queued", "syncing", "failed"].includes(item.syncStatus),
-      ));
-      cases.onerror = () => resolve(false);
-      transaction.oncomplete = () => db.close();
-      transaction.onabort = () => { db.close(); resolve(false); };
-    };
-  });
+
+
+  const pendingCount =
+    await countPendingCases();
+
+  if (pendingCount === 0) {
+    return;
+  }
+
+
+
+  const displayed =
+    await self.registration.getNotifications({
+      tag: NOTIFICATION_TAG,
+    });
+
+  if (displayed.length > 0) {
+    return;
+  }
+
+  await self.registration.showNotification(
+    "مواردی در انتظار ارسال هستند",
+    {
+      body:
+        "ارسال هنوز کامل نشده است. " +
+        "برای بررسی صف، برنامه را باز کنید.",
+
+      tag: NOTIFICATION_TAG,
+
+      data: {
+        url: "/queue",
+      },
+    },
+  );
 }
 
 self.addEventListener("sync", (event) => {
-  if (event.tag !== SYNC_TAG) return;
+  if (event.tag !== SYNC_TAG) {
+    return;
+  }
 
   event.waitUntil(
-    (async () => {
-      if (!(await hasPendingUploads()) || await hasVisibleWindow()) return;
-
-      if (!(await backendReady())) {
-        throw new Error("BACKEND_NOT_READY");
-      }
-
-      try {
-        await self.registration.showNotification(
-          "اتصال اینترنت برقرار شد",
-          {
-            body:
-              "مواردی در انتظار ارسال دارید. برای ادامه ارسال، برنامه را باز کنید.",
-            tag: NOTIFICATION_TAG,
-            data: {
-              url: "/queue",
-            },
-          },
-        );
-      } catch {
-        // Notification permission may be unavailable.
-      }
-    })(),
+    showPendingReminderIfNeeded().catch(
+      () => undefined,
+    ),
   );
 });
 
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
+
+
+
+self.addEventListener("message", (event) => {
+  if (
+    event.data?.type !==
+    "AIRWAY_CHECK_PENDING_REMINDER"
+  ) {
+    return;
+  }
 
   event.waitUntil(
-    (async () => {
-      const target = new URL(
-        event.notification?.data?.url || "/queue",
-        self.location.origin,
-      ).href;
+    showPendingReminderIfNeeded().catch(
+      () => undefined,
+    ),
+  );
+});
 
-      const windows = await self.clients.matchAll({
-        type: "window",
-        includeUncontrolled: true,
-      });
 
-      for (const client of windows) {
-        try {
-          if ("navigate" in client) {
-            await client.navigate(target);
+
+
+self.addEventListener(
+  "notificationclick",
+  (event) => {
+    event.notification.close();
+
+    event.waitUntil(
+      (async () => {
+
+
+
+        const target = new URL(
+          "/queue",
+          self.location.origin,
+        ).href;
+
+        const windows =
+          await self.clients.matchAll({
+            type: "window",
+            includeUncontrolled: true,
+          });
+
+        for (const client of windows) {
+          try {
+            if ("navigate" in client) {
+              await client.navigate(target);
+            }
+
+            await client.focus();
+
+            return;
+          } catch {
+            // Try the next open window.
           }
-
-          await client.focus();
-          return;
-        } catch {
-          // Try another window.
         }
-      }
 
-      if (self.clients.openWindow) {
-        await self.clients.openWindow(target);
-      }
-    })(),
-  );
-});
+        if (self.clients.openWindow) {
+          await self.clients.openWindow(target);
+        }
+      })(),
+    );
+  },
+);
+
+
 
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
@@ -387,7 +515,7 @@ self.addEventListener("push", (event) => {
       // Legacy pushes have no JSON payload.
     }
     const test = payload.type === "push-test";
-    const pending = !test && await hasPendingUploads();
+    const pending = !test && (await countPendingCases()) > 0;
     // Safari requires every received push to display a notification. For a
     // stale reminder, use neutral wording instead of claiming uploads remain.
     await self.registration.showNotification(
@@ -398,7 +526,7 @@ self.addEventListener("push", (event) => {
           : pending
             ? "مواردی در انتظار ارسال دارید. برنامه را باز کنید."
             : "برای مشاهده وضعیت ارسال، برنامه را باز کنید.",
-        tag: test ? "airway-push-test" : NOTIFICATION_TAG,
+        tag: test ? "airway-push-test" : "airway-server-push",
         data: { url: "/queue" },
       },
     );

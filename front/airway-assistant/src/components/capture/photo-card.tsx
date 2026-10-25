@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+
 import {
   Camera,
   CheckCircle2,
@@ -11,9 +12,21 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { GuidedCamera } from "@/components/capture/guided-camera";
-import type { CaptureStep } from "@/lib/config/capture-protocol";
-import type { PreparedImage } from "@/lib/domain/types";
+import {
+  GuidedCamera,
+} from "@/components/capture/guided-camera";
+
+import {
+  RemotePhotoImage,
+} from "@/components/capture/remote-photo-image";
+
+import type {
+  CaptureStep,
+} from "@/lib/config/capture-protocol";
+
+import type {
+  PreparedImage,
+} from "@/lib/domain/types";
 
 interface PhotoSlot {
   id: string;
@@ -21,22 +34,30 @@ interface PhotoSlot {
 }
 
 interface PhotoCardProps {
+  caseId: string;
+  synced?: boolean;
   step: CaptureStep;
   positionIndex: number;
   totalPositions: number;
   photos: PhotoSlot[];
   maxPhotoCount: number;
+
   onPhotoSelected: (
     image: PreparedImage,
     replacePhotoId?: string,
   ) => Promise<void>;
-  onPhotoDelete: (photoId: string) => Promise<void>;
+
+  onPhotoDelete: (
+    photoId: string,
+  ) => Promise<void>;
+
   disabled?: boolean;
-  /** Finalized/sent cases are displayed as read-only, with no action buttons. */
   readOnly?: boolean;
 }
 
 export function PhotoCard({
+  caseId,
+  synced = false,
   step,
   positionIndex,
   totalPositions,
@@ -47,11 +68,24 @@ export function PhotoCard({
   disabled = false,
   readOnly = false,
 }: PhotoCardProps) {
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [replacePhotoId, setReplacePhotoId] = useState<string | undefined>();
-  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] =
+    useState(false);
+
+  const [replacePhotoId, setReplacePhotoId] =
+    useState<string | undefined>();
+
+  const [deletingPhotoId, setDeletingPhotoId] =
+    useState<string | null>(null);
+
   const canAdd = photos.length < maxPhotoCount;
-  const busy = disabled || readOnly || deletingPhotoId !== null;
+
+  const busy =
+    disabled ||
+    readOnly ||
+    synced ||
+    deletingPhotoId !== null;
+
+  const viewOnly = readOnly || synced;
 
   function closeCamera() {
     setCameraOpen(false);
@@ -60,6 +94,7 @@ export function PhotoCard({
 
   function openCamera(photoId?: string) {
     if (busy || (!photoId && !canAdd)) return;
+
     setReplacePhotoId(photoId);
     setCameraOpen(true);
   }
@@ -70,6 +105,7 @@ export function PhotoCard({
     const confirmed = window.confirm(
       "این عکس حذف شود؟ این عمل قبل از ارسال به سرور انجام می‌شود.",
     );
+
     if (!confirmed) return;
 
     try {
@@ -90,32 +126,54 @@ export function PhotoCard({
                 <span className="flex size-7 items-center justify-center rounded-full bg-sky-50 text-xs font-bold text-sky-700">
                   {positionIndex}
                 </span>
-                <h2 className="text-base font-bold text-slate-950">{step.title}</h2>
+
+                <h2 className="text-base font-bold text-slate-950">
+                  {step.title}
+                </h2>
+
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
                   حداکثر {maxPhotoCount} عکس
                 </span>
-                {readOnly && (
+
+                {viewOnly && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800">
-                    <LockKeyhole size={12} /> فقط مشاهده
+                    <LockKeyhole size={12} />
+                    فقط مشاهده
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-xs leading-6 text-slate-500">{step.description}</p>
+
+              <p className="mt-2 text-xs leading-6 text-slate-500">
+                {step.description}
+              </p>
+
               <p className="mt-1 text-[11px] text-slate-400">
                 پوزیشن {positionIndex} از {totalPositions}
               </p>
             </div>
+
             {photos.length > 0 && (
-              <CheckCircle2 size={24} className="shrink-0 text-emerald-600" />
+              <CheckCircle2
+                size={24}
+                className="shrink-0 text-emerald-600"
+              />
             )}
           </div>
 
-          {!readOnly && (
+          {!viewOnly && (
             <div className="mt-4 rounded-2xl bg-slate-50 p-3">
-              <p className="text-xs font-bold text-slate-700">راهنمای این پوزیشن</p>
+              <p className="text-xs font-bold text-slate-700">
+                راهنمای این پوزیشن
+              </p>
+
               <ul className="mt-2 space-y-1 pr-4 text-xs leading-6 text-slate-500">
                 {step.instructions.map((instruction) => (
-                  <li key={instruction} className="list-disc">{instruction}</li>
+                  <li
+                    key={instruction}
+                    className="list-disc"
+                  >
+                    {instruction}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -124,26 +182,42 @@ export function PhotoCard({
 
         <div className="grid grid-cols-2 gap-2 px-4">
           {photos.map((photo, index) => (
-            <div key={photo.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+            <div
+              key={photo.id}
+              className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
+            >
               <div className="relative aspect-[4/3]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo.url}
-                  alt={`${step.title} - عکس ${index + 1}`}
-                  className="h-full w-full object-cover"
-                />
-                <span className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-black/60 text-[11px] font-bold text-white">
+                {synced ? (
+                  <RemotePhotoImage
+                    caseId={caseId}
+                    photoId={photo.id}
+                    alt={`${step.title} - عکس ${index + 1}`}
+                    localFallbackUrl={photo.url}
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={photo.url}
+                    alt={`${step.title} - عکس ${index + 1}`}
+                    className="h-full w-full object-cover"
+                  />
+                )}
+
+                <span className="absolute right-2 top-2 flex size-7 h-7 items-center justify-center rounded-full bg-black/60 text-[11px] font-bold text-white">
                   {index + 1}
                 </span>
+
                 {deletingPhotoId === photo.id && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <LoaderCircle size={24} className="animate-spin text-white" />
+                    <LoaderCircle
+                      size={24}
+                      className="animate-spin text-white"
+                    />
                   </div>
                 )}
               </div>
 
-              {/* Finalized/synced photos have no edit or delete controls. */}
-              {!readOnly && (
+              {!viewOnly && (
                 <div className="grid grid-cols-2 border-t border-slate-200">
                   <button
                     type="button"
@@ -151,32 +225,45 @@ export function PhotoCard({
                     onClick={() => openCamera(photo.id)}
                     className="flex min-h-11 items-center justify-center gap-1.5 border-l border-slate-200 bg-white px-2 text-xs font-bold text-sky-700 disabled:opacity-50"
                   >
-                    <ImagePlus size={15} /> گرفتن مجدد
+                    <ImagePlus size={15} />
+                    گرفتن مجدد
                   </button>
+
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => void handleDelete(photo.id)}
+                    onClick={() =>
+                      void handleDelete(photo.id)
+                    }
                     className="flex min-h-11 items-center justify-center gap-1.5 bg-white px-2 text-xs font-bold text-red-600 disabled:opacity-50"
                   >
-                    <Trash2 size={15} /> حذف
+                    <Trash2 size={15} />
+                    حذف
                   </button>
                 </div>
               )}
             </div>
           ))}
 
-          {!readOnly && canAdd && (
+          {!viewOnly && canAdd && (
             <button
               type="button"
               disabled={busy}
               onClick={() => openCamera()}
               className="flex aspect-[4/3] min-h-32 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-sky-200 bg-sky-50/50 px-3 text-sky-700 transition active:scale-[0.98] disabled:opacity-50"
             >
-              {photos.length === 0 ? <Camera size={26} /> : <Plus size={28} />}
+              {photos.length === 0 ? (
+                <Camera size={26} />
+              ) : (
+                <Plus size={28} />
+              )}
+
               <span className="text-xs font-bold">
-                {photos.length === 0 ? "ثبت عکس" : "افزودن عکس"}
+                {photos.length === 0
+                  ? "ثبت عکس"
+                  : "افزودن عکس"}
               </span>
+
               <span className="text-[10px] text-sky-600/70">
                 {photos.length} / {maxPhotoCount}
               </span>
@@ -185,7 +272,7 @@ export function PhotoCard({
         </div>
 
         <div className="p-4 text-center text-xs font-medium text-slate-500">
-          {readOnly
+          {viewOnly
             ? photos.length > 0
               ? `${photos.length} عکس ثبت‌شده (غیرقابل ویرایش)`
               : "عکسی برای این پوزیشن ثبت نشده است."
@@ -195,12 +282,16 @@ export function PhotoCard({
         </div>
       </section>
 
-      {cameraOpen && !readOnly && (
+      {cameraOpen && !viewOnly && (
         <GuidedCamera
           step={step}
           onClose={closeCamera}
           onConfirm={async (image) => {
-            await onPhotoSelected(image, replacePhotoId);
+            await onPhotoSelected(
+              image,
+              replacePhotoId,
+            );
+
             closeCamera();
           }}
         />

@@ -263,18 +263,29 @@ function workerHarness(statuses) {
       location: { origin: "https://app" },
       addEventListener: (name, callback) => { listeners[name] = callback; },
       clients: { matchAll: async () => [] },
-      registration: { showNotification: async (...args) => { notifications.push(args); } },
+      registration: {
+        showNotification: async (...args) => { notifications.push(args); },
+        getNotifications: async ({ tag }) => notifications.filter((item) => item[1].tag === tag),
+      },
     },
     indexedDB: { open: () => {
       const request = {};
       queueMicrotask(() => {
-        const rows = {};
         request.result = {
           objectStoreNames: { contains: () => true }, close() {},
-          transaction: () => ({ objectStore: () => ({ getAll: () => {
-            queueMicrotask(() => { rows.result = statuses.map((syncStatus) => ({ syncStatus })); rows.onsuccess(); });
-            return rows;
-          } }) }),
+          transaction: () => {
+            let completed = 0;
+            const transaction = { objectStore: () => ({ index: () => ({ count: (status) => {
+              const count = {};
+              queueMicrotask(() => {
+                count.result = statuses.filter((item) => item === status).length;
+                count.onsuccess();
+                if (++completed === 3) transaction.oncomplete();
+              });
+              return count;
+            } }) }) };
+            return transaction;
+          },
         };
         request.onsuccess();
       });
@@ -283,6 +294,7 @@ function workerHarness(statuses) {
     URL, Response,
     fetch: async () => Response.json({ configured: true, reachable: true, databaseReady: true }),
   };
+  context.self.indexedDB = context.indexedDB;
   vm.runInNewContext(readFileSync(new URL("../public/sw.js", import.meta.url), "utf8"), context);
   return { listeners, notifications };
 }
@@ -293,6 +305,18 @@ test("background reminders recheck durable queue after uploads complete", async 
     let work;
     listeners.sync({ tag: "airway-upload-reminder-v1", waitUntil: (promise) => { work = promise; } });
     await work;
+    assert.equal(notifications.length, expected);
+  }
+});
+
+test("message reminders use the same pending queue check and avoid duplicate notifications", async () => {
+  for (const [statuses, expected] of [[[], 0], [["queued"], 1]]) {
+    const { listeners, notifications } = workerHarness(statuses);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let work;
+      listeners.message({ data: { type: "AIRWAY_CHECK_PENDING_REMINDER" }, waitUntil: (promise) => { work = promise; } });
+      await work;
+    }
     assert.equal(notifications.length, expected);
   }
 });

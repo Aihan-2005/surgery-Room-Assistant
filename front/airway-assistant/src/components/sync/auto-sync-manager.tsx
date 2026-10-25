@@ -18,16 +18,25 @@ import {
 } from "@/lib/api/sync-case";
 
 import {
+  releaseSyncedCaseBlobs,
+} from "@/lib/api/synced-photos";
+
+import {
   useConnectivity,
 } from "@/components/connectivity/connectivity-provider";
 
 import {
   ensureWebPushSubscription,
   getNotificationPermission,
+  getReadyServiceWorkerRegistration,
   registerUploadReminderSync,
 } from "@/lib/pwa/upload-reminder";
 
 const AUTO_SYNC_INTERVAL_MS = 10_000;
+const CLEANUP_RETRY_MS = 3 * 60_000;
+
+const REMINDER_MESSAGE =
+  "AIRWAY_CHECK_PENDING_REMINDER";
 
 function browserIsOnline(): boolean {
   return (
@@ -36,21 +45,52 @@ function browserIsOnline(): boolean {
   );
 }
 
+async function requestPendingReminder():
+  Promise<void> {
+  if (
+    !browserIsOnline() ||
+    document.visibilityState === "visible" ||
+    getNotificationPermission() !== "granted"
+  ) {
+    return;
+  }
+
+  const stillPending = (
+    await getAllCases()
+  ).some(
+    (item) =>
+      ["queued", "syncing", "failed"].includes(
+        item.syncStatus,
+      ),
+  );
+
+  if (!stillPending) return;
+
+  const registration =
+    await getReadyServiceWorkerRegistration();
+
+  registration?.active?.postMessage({
+    type: REMINDER_MESSAGE,
+  });
+}
+
 export function AutoSyncManager() {
   const { refresh } = useConnectivity();
 
   const runningRef = useRef(false);
 
+  const cleanedOrChecked =
+    useRef(new Set<string>());
+
+  const retryAfter =
+    useRef(new Map<string, number>());
+
   const processQueue = useCallback(async () => {
-    if (runningRef.current) {
-      return;
-    }
+    if (runningRef.current) return;
 
     runningRef.current = true;
 
     try {
-
-      
       const allCases = await getAllCases();
 
       for (const airwayCase of allCases) {
@@ -73,15 +113,8 @@ export function AutoSyncManager() {
           new Date(second.updatedAt).getTime(),
       );
 
-      /*
-       * Sending cases is independent from
-       * notification permission.
-       */
+
       if (queuedCases.length > 0) {
-        /*
-         * Optional Background Sync reminder.
-         * Failure must not block local cases.
-         */
         await registerUploadReminderSync();
 
         if (browserIsOnline()) {
@@ -89,9 +122,7 @@ export function AutoSyncManager() {
 
           if (connectivity.canUpload) {
             for (const airwayCase of queuedCases) {
-              if (!browserIsOnline()) {
-                break;
-              }
+              if (!browserIsOnline()) break;
 
               try {
                 await syncCase(airwayCase.id);
@@ -103,7 +134,6 @@ export function AutoSyncManager() {
 
                 await registerUploadReminderSync();
 
-                // Avoid repeated requests after a failure.
                 break;
               }
             }
@@ -113,19 +143,70 @@ export function AutoSyncManager() {
         }
       }
 
-      /*
-       * Web Push subscription is independent
-       * from the number of queued cases.
-       *
-       * Never request notification permission
-       * automatically. Only reconnect when the
-       * user has already granted permission.
-       */
+      await requestPendingReminder();
+
+
       if (
         browserIsOnline() &&
         getNotificationPermission() === "granted"
       ) {
         await ensureWebPushSubscription();
+      }
+
+
+
+      if (
+        browserIsOnline() &&
+        document.visibilityState === "visible"
+      ) {
+        const latestCases = await getAllCases();
+        const now = Date.now();
+
+        for (const item of latestCases) {
+          if (item.syncStatus !== "synced") {
+            continue;
+          }
+
+          if (
+            cleanedOrChecked.current.has(item.id)
+          ) {
+            continue;
+          }
+
+          if (
+            (retryAfter.current.get(item.id) ?? 0) >
+            now
+          ) {
+            continue;
+          }
+
+          try {
+            const bytes =
+              await releaseSyncedCaseBlobs(item.id);
+
+            cleanedOrChecked.current.add(item.id);
+            retryAfter.current.delete(item.id);
+
+            if (bytes > 0) {
+              console.info(
+                "Verified synced photo storage released",
+                bytes,
+              );
+            }
+          } catch (error) {
+            retryAfter.current.set(
+              item.id,
+              now + CLEANUP_RETRY_MS,
+            );
+
+            console.warn(
+              "Synced-photo cleanup deferred:",
+              error,
+            );
+          }
+
+           break;
+        }
       }
     } catch (error) {
       console.warn(
@@ -140,9 +221,6 @@ export function AutoSyncManager() {
   useEffect(() => {
     void processQueue();
 
-    /*
-     * Periodically check while the app is visible.
-     */
     const intervalId = window.setInterval(() => {
       if (
         document.visibilityState === "visible"
@@ -151,19 +229,11 @@ export function AutoSyncManager() {
       }
     }, AUTO_SYNC_INTERVAL_MS);
 
-    const handleOnline = () => {
-      void processQueue();
-    };
+    const onOnline = () => void processQueue();
+    const onFocus = () => void processQueue();
+    const onPageShow = () => void processQueue();
 
-    const handleFocus = () => {
-      void processQueue();
-    };
-
-    const handlePageShow = () => {
-      void processQueue();
-    };
-
-    const handleVisibilityChange = () => {
+    const onVisible = () => {
       if (
         document.visibilityState === "visible"
       ) {
@@ -171,34 +241,22 @@ export function AutoSyncManager() {
       }
     };
 
-    const handleControllerChange = () => {
+    const onControllerChange = () =>
       void processQueue();
-    };
 
-    window.addEventListener(
-      "online",
-      handleOnline,
-    );
-
-    window.addEventListener(
-      "focus",
-      handleFocus,
-    );
-
-    window.addEventListener(
-      "pageshow",
-      handlePageShow,
-    );
+    window.addEventListener("online", onOnline);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow);
 
     document.addEventListener(
       "visibilitychange",
-      handleVisibilityChange,
+      onVisible,
     );
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.addEventListener(
         "controllerchange",
-        handleControllerChange,
+        onControllerChange,
       );
     }
 
@@ -207,28 +265,28 @@ export function AutoSyncManager() {
 
       window.removeEventListener(
         "online",
-        handleOnline,
+        onOnline,
       );
 
       window.removeEventListener(
         "focus",
-        handleFocus,
+        onFocus,
       );
 
       window.removeEventListener(
         "pageshow",
-        handlePageShow,
+        onPageShow,
       );
 
       document.removeEventListener(
         "visibilitychange",
-        handleVisibilityChange,
+        onVisible,
       );
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.removeEventListener(
           "controllerchange",
-          handleControllerChange,
+          onControllerChange,
         );
       }
     };
@@ -236,4 +294,3 @@ export function AutoSyncManager() {
 
   return null;
 }
-

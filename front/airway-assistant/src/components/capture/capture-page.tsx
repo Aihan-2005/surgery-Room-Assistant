@@ -282,9 +282,9 @@ export default function CapturePage({
               photo,
 
               url:
-                createPreviewUrl(
-                  photo.blob,
-                ),
+                photo.blob.size > 0
+                  ? createPreviewUrl(photo.blob)
+                  : "",
             };
 
             previews[
@@ -965,6 +965,8 @@ export default function CapturePage({
             index,
           ) => (
             <PhotoCard
+              caseId={caseId}
+              synced={remoteLocked}
               key={
                 step.kind
               }
