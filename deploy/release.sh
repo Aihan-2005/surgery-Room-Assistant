@@ -13,7 +13,17 @@ state_dir="${AIRWAY_STATE_DIR:-/srv/airway}"
 project_dir="${AIRWAY_PROJECT_DIR:-$state_dir/surgery-Room-Assistant}"
 env_file="${AIRWAY_ENV_FILE:-/etc/airway/compose.env}"
 backup_root="${AIRWAY_BACKUP_DIR:-$state_dir/backups}"
+compose_helper="${AIRWAY_COMPOSE_HELPER:-}"
 [[ -f "$env_file" ]] || { echo "Missing $env_file" >&2; exit 1; }
+# Existing installations may mount their trusted certificate through this
+# helper. Plain Compose would silently remove that mount when recreating Caddy.
+if [[ -z "$compose_helper" && -e "$(dirname "$env_file")/compose-https" ]]; then
+    compose_helper="$(dirname "$env_file")/compose-https"
+fi
+if [[ -n "$compose_helper" && ! -x "$compose_helper" ]]; then
+    echo "Compose helper is not executable: $compose_helper" >&2
+    exit 1
+fi
 if grep -Eq '^(APP_HOST|APP_ORIGIN|DJANGO_SECRET_KEY|DB_PASSWORD)=.*(REPLACE_WITH|YOUR_SERVER_IP)' "$env_file"; then
     echo "Replace the example values in $env_file before deploying." >&2
     exit 1
@@ -62,7 +72,11 @@ export IMAGE_TAG="$release"
 compose() {
     # CI streams this script into bash over SSH. Keep Compose from consuming
     # the remaining script as interactive container input.
-    docker compose --env-file "$env_file" -f "$project_dir/compose.yaml" "$@" < /dev/null
+    if [[ -n "$compose_helper" ]]; then
+        "$compose_helper" "$@" < /dev/null
+    else
+        docker compose --env-file "$env_file" -f "$project_dir/compose.yaml" "$@" < /dev/null
+    fi
 }
 
 # Never print the expanded config: it contains secrets.
@@ -94,7 +108,10 @@ fi
 compose run --rm --no-deps backend python manage.py migrate --noinput
 compose run --rm --no-deps backend python manage.py createcachetable
 compose run --rm --no-deps backend python manage.py collectstatic --noinput
-compose up -d --no-build --wait --wait-timeout 180 backend frontend gateway
+compose up -d --no-build --wait --wait-timeout 180 backend frontend
+# Refresh published ports even if an earlier gateway start failed while a host
+# web server occupied port 80. App health must pass before Caddy is recreated.
+compose up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 gateway
 
 # Check published ports from the VPS over loopback. Keep the public Host header
 # and TLS identity, without requiring public-IP hairpin routing or external DNS.

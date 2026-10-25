@@ -327,16 +327,32 @@ it as a development working directory. Runtime secrets remain in `/etc/airway`.
 
 ## Release behavior and recovery
 
+The release script uses an existing executable `compose-https` helper beside
+the Compose env file (normally `/etc/airway/compose-https`) for **every** Compose
+operation, including builds, backups, gateway recreation and failure cleanup.
+This preserves existing certificate mounts and HTTPS overrides. Set
+`AIRWAY_COMPOSE_HELPER=/absolute/path/to/helper` to select another helper.
+An existing helper without executable permission stops deployment before
+container changes. Installations without a helper use the repository's normal
+Compose configuration and Caddy automatic certificates.
+
+For recovery on an installation with that helper, use
+`/etc/airway/compose-https` instead of plain `docker compose`; otherwise
+recreating the gateway can omit its existing certificate mount. Never print
+expanded Compose configuration, which contains secrets.
+
 Images are prepared/pulled before maintenance. Then the script stops the public
 gateway and both apps, backs up the container database and media, applies
-migrations, collects static files, starts the apps, and checks container health
+migrations, collects static files, starts the apps, recreates Caddy to refresh
+its published ports, and checks container health
 plus the homepage/API through Caddy's published ports on VPS loopback. The check
 preserves the public Host header and HTTPS certificate validation, and does not
 require external DNS, international connectivity or a container connection back
 to the VPS public IP. Check public access separately from another device/network;
 this local check cannot establish whether the provider firewall permits visitors.
-The VPS needs `curl` and Python 3 for verification. This simple single-VPS setup has downtime during
-backup, migration and restart; it does not provide zero-downtime deployment.
+The VPS needs `curl` and Python 3 for verification. This simple single-VPS setup
+has downtime during backup, migration and restart; it does not provide
+zero-downtime deployment.
 
 Backups are private directories under `/srv/airway/backups/`, each containing
 `database.dump`, `media.tar.gz`, and, after the first successful release,

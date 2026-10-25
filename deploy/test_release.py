@@ -87,6 +87,52 @@ if args[0] == 'rev-parse':
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.calls(), [])
 
+    def https_helper(self, path):
+        path.write_text(
+            '#!/usr/bin/env bash\n'
+            'exec docker compose --env-file "$AIRWAY_ENV_FILE" '
+            '-f "$AIRWAY_PROJECT_DIR/compose.yaml" '
+            '-f "$AIRWAY_STATE_DIR/https-override.yaml" "$@"\n'
+        )
+        path.chmod(0o755)
+        return str(path)
+
+    def assert_uses_https_override(self):
+        docker_calls = [call for call in self.calls() if call[0] == "docker"]
+        self.assertTrue(docker_calls)
+        for call in docker_calls:
+            self.assertIn(str(self.root / "https-override.yaml"), call)
+        self.assertTrue(any("validate" in call for call in docker_calls))
+        self.assertTrue(any("pg_dump" in call for call in docker_calls))
+        self.assertTrue(any("gateway" in call and "up" in call for call in docker_calls))
+
+    def test_detects_existing_https_helper_for_every_compose_operation(self):
+        self.https_helper(self.root / "compose-https")
+        result = self.run_release()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_uses_https_override()
+
+    def test_explicit_https_helper_works_for_ci_image_deployment(self):
+        helper = self.https_helper(self.root / "custom-compose")
+        result = self.run_release(SHA, AIRWAY_COMPOSE_HELPER=helper)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_uses_https_override()
+
+    def test_invalid_https_helper_stops_before_container_changes(self):
+        helper = self.root / "compose-https"
+        helper.write_text("not executable")
+        result = self.run_release()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not executable", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_https_helper_is_used_when_failure_stops_containers(self):
+        self.https_helper(self.root / "compose-https")
+        result = self.run_release(TEST_FAIL_ON="gateway-check")
+        self.assertEqual(result.returncode, 55, result.stderr)
+        self.assert_uses_https_override()
+        self.assertEqual(sum("stop" in call for call in self.calls()), 2)
+
     def test_refuses_tracked_server_edits(self):
         result = self.run_release(SHA, TEST_DIRTY=" M backend/config/settings.py")
         self.assertNotEqual(result.returncode, 0)
@@ -128,6 +174,12 @@ if args[0] == 'rev-parse':
         self.assertLess(position("tar"), position("migrate"))
         self.assertLess(position("migrate"), position("collectstatic"))
         self.assertLess(position("collectstatic"), position("python3"))
+        app_start = next(i for i, call in enumerate(calls) if "up" in call and "frontend" in call)
+        gateway_start = next(i for i, call in enumerate(calls) if "up" in call and "gateway" in call)
+        self.assertLess(app_start, gateway_start)
+        self.assertLess(gateway_start, position("python3"))
+        self.assertIn("--force-recreate", calls[gateway_start])
+        self.assertIn("--no-deps", calls[gateway_start])
         self.assertIn(["git", "checkout", "--detach", SHA], calls)
         self.assertEqual((self.root / "current-release").read_text(), SHA + "\n")
 
