@@ -613,14 +613,26 @@ class ImageProcessingTests(BaseAPITest):
     def test_photo_download_requires_owner_and_media_is_not_public(self):
         photo_id, _ = self.upload(self.doctor, self.case_id, "front")
         url = f"{API}/assessments/{self.case_id}/photos/{photo_id}/"
-        self.assertEqual(APIClient().get(url).status_code, 401)
-        self.assertEqual(self.make_client("Dr. Other").get(url).status_code, 404)
-        response = self.doctor.get(url)
+        # Match the proxies: DRF must negotiate JSON errors before this view
+        # returns its binary FileResponse. Image-only Accept would yield 406.
+        headers = {"HTTP_ACCEPT": "*/*"}
+        other = self.make_client("Dr. Other")
+        for method in ("get", "head"):
+            self.assertEqual(getattr(APIClient(), method)(url, **headers).status_code, 401)
+            self.assertEqual(getattr(other, method)(url, **headers).status_code, 404)
+        response = self.doctor.get(url, **headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/jpeg")
         # Fully consuming the test client's stream also closes the file safely.
-        b"".join(response.streaming_content)
+        downloaded = b"".join(response.streaming_content)
         photo = AssessmentPhoto.objects.get(id=photo_id)
+        with photo.image.open("rb") as source:
+            self.assertEqual(downloaded, source.read())
+        response = self.doctor.head(url, **headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertEqual(int(response["Content-Length"]), len(downloaded))
+        self.assertEqual(b"".join(response.streaming_content), b"")
         self.assertEqual(APIClient().get(photo.image.url).status_code, 404)
 
 

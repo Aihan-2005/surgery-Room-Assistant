@@ -26,6 +26,46 @@ const caseUuid = "4dfe4bde-40f4-4ada-a4e8-0ed351e97d38";
 const photoUuid = "1dd95eb3-b88b-438b-9f8e-03e979885f24";
 const readRequest = () => new Request("https://app/api/sync/cases", { headers: { "X-Device-Token": "device-secret" } });
 
+test("both photo proxies allow Django content negotiation for downloads, HEAD checks, and auth errors", async () => {
+  for (const path of ["legacy", "gallery"]) {
+    for (const method of path === "legacy" ? ["GET", "HEAD"] : ["GET"]) {
+      for (const status of [200, 401, 403, 404]) {
+        const globals = {
+          process: { env: { BACKEND_API_URL: "http://backend:8000" } },
+          fetch: async (_url, init) => {
+            // DRF negotiates its JSON renderer before authentication and before
+            // the view can return a binary FileResponse. Image-only Accept fails.
+            const accept = new Headers(init.headers).get("Accept") ?? "*/*";
+            const negotiable = accept.split(",").some((value) =>
+              ["*/*", "application/*", "application/json"].includes(value.trim()));
+            if (!negotiable) return Response.json({ detail: "Not acceptable" }, { status: 406 });
+            if (status !== 200) return Response.json({ detail: "Denied" }, { status });
+            return new Response(method === "HEAD" ? null : "photo bytes", {
+              headers: { "Content-Type": "image/jpeg", "Content-Length": "11" },
+            });
+          },
+        };
+        let response;
+        if (path === "legacy") {
+          const route = loadTS("app/api/remote-photos/[caseId]/[photoId]/route.ts",
+            { "next/server": { NextResponse: Response } }, globals);
+          response = await route[method](readRequest(), {
+            params: Promise.resolve({ caseId: caseUuid, photoId: photoUuid }),
+          });
+        } else {
+          const { proxyCaseRead } = loadTS("lib/server/case-read.ts", {}, globals);
+          response = await proxyCaseRead(readRequest(), caseUuid, photoUuid);
+        }
+        assert.equal(response.status, status, `${path} ${method} upstream ${status}`);
+        if (status === 200) {
+          assert.equal(response.headers.get("Content-Type"), "image/jpeg");
+          assert.equal(await response.text(), method === "HEAD" ? "" : "photo bytes");
+        }
+      }
+    }
+  }
+});
+
 test("photo proxy forwards authentication and exact image bytes without public media URLs", async () => {
   const bytes = new Uint8Array([255, 216, 255, 224, 1, 2, 3, 255, 217]);
   const calls = [];

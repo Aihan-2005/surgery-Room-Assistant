@@ -22,7 +22,8 @@ export async function proxyCaseRead(request: Request, caseId: string, photoId?: 
   const path = photoId ? `${caseId}/photos/${photoId}/` : `${caseId}/`;
   try {
     const response = await fetch(`${raw}/api/assessments/${path}`, {
-      headers: { Authorization: `Device ${token}`, Accept: photoId ? "image/*" : "application/json" },
+      // Image-only Accept is rejected by DRF before its FileResponse view runs.
+      headers: { Authorization: `Device ${token}`, Accept: photoId ? "*/*" : "application/json" },
       cache: "no-store", redirect: "error", signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {

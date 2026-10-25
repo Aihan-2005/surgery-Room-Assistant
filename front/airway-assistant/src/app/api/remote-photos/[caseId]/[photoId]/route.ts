@@ -84,7 +84,9 @@ async function proxyPhoto(
       method,
       headers: {
         Authorization: `Device ${token}`,
-        Accept: "image/jpeg,image/png,image/webp",
+        // DRF negotiates its API renderer before the view returns FileResponse.
+        // Allow JSON errors too; successful bodies are validated as images below.
+        Accept: "*/*",
       },
       cache: "no-store",
       redirect: "manual",
