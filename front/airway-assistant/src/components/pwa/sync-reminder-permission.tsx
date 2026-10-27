@@ -85,6 +85,7 @@ export function SyncReminderPermission() {
         return;
       }
 
+      // Rebind an existing subscription only; no permission prompt on mount.
       const result = await ensureWebPushSubscription();
       if (active) setPushState(result);
     }
@@ -124,7 +125,8 @@ export function SyncReminderPermission() {
     setFeedback(null);
 
     try {
-      
+      // IMPORTANT: start subscribe()/requestPermission() in this click,
+      // before the first await. This matters for iOS Home Screen apps.
       const activation = enableWebPushFromGesture();
       const result = await activation;
       const currentPermission = getNotificationPermission();
@@ -134,11 +136,11 @@ export function SyncReminderPermission() {
       setPushState(result);
 
       if (currentPermission === "granted") {
-
+        // Optional: only registers a reminder when unsent cases exist.
         await registerUploadReminderSync();
       }
     } catch {
-
+      // Notification setup is optional; never block patient capture or sync.
       setPermission(getNotificationPermission());
       setPushState("pending");
     } finally {

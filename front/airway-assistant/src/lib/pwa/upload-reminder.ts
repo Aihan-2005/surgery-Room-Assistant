@@ -93,6 +93,7 @@ function isStandalone(): boolean {
   );
 }
 
+/** Notification permission and Web Push are different browser capabilities. */
 export function getNotificationSupport(): NotificationSupport {
   if (!browserAvailable()) return "unsupported";
   if (!window.isSecureContext) return "insecure";
@@ -109,6 +110,7 @@ export function getNotificationSupport(): NotificationSupport {
   return "available";
 }
 
+/** Web Push support, not merely permission-dialog support. */
 export function notificationsAvailable(): boolean {
   return getNotificationSupport() === "available";
 }
@@ -123,6 +125,7 @@ export function getNotificationPermission():
   return Notification.permission;
 }
 
+/** Call from a user gesture. Never turn an exception into a fake denial. */
 export async function requestNotificationPermission(): Promise<
   NotificationPermission | "unsupported"
 > {
@@ -251,6 +254,7 @@ function samePublicKey(subscription: PushSubscription, key: ArrayBuffer): boolea
     previous.every((value, index) => value === current[index]);
 }
 
+/** Preparation never asks for notification permission. */
 export async function preloadPushConfiguration(): Promise<void> {
   if (!notificationsAvailable()) return;
   const config = await loadPushConfig();
@@ -266,7 +270,8 @@ export async function preloadPushConfiguration(): Promise<void> {
   try {
     const key = vapidKeyToArrayBuffer(config.key);
     const existing = await registration.pushManager.getSubscription();
-
+    // A rotated VAPID key needs a new subscription. Do not modify the
+    // existing subscription while merely visiting the page.
     preparedPush = {
       registration,
       key,
@@ -277,6 +282,11 @@ export async function preloadPushConfiguration(): Promise<void> {
   }
 }
 
+/**
+ * Call DIRECTLY from a click handler (before any awaited operation).
+ * Safari requires subscribe() to begin while the gesture is still active.
+ * When Web Push is not ready, try permission alone where supported.
+ */
 export async function enableWebPushFromGesture(): Promise<PushSetupResult> {
   const support = getNotificationSupport();
   if (support === "permission-only") {
@@ -286,7 +296,8 @@ export async function enableWebPushFromGesture(): Promise<PushSetupResult> {
   if (support !== "available") return "unsupported";
   if (getNotificationPermission() === "denied") return "pending";
 
-  
+  // Key rotation is rare. Remove only the obsolete push subscription
+  // after an explicit tap; ask for a second tap to create the new one.
   if (navigator.onLine !== false && preparedPush?.needsRenewal) {
     try {
       const previous = await preparedPush.registration.pushManager.getSubscription();
@@ -316,8 +327,8 @@ export async function enableWebPushFromGesture(): Promise<PushSetupResult> {
     }
   }
 
-  
-
+  // With a missing VAPID key, offline backend or unready service worker,
+  // the permission prompt is still useful. It must happen in this gesture.
   const permissionRequest = requestNotificationPermission();
   const permission = await permissionRequest;
   if (permission !== "granted") return "pending";
@@ -327,7 +338,7 @@ export async function enableWebPushFromGesture(): Promise<PushSetupResult> {
   const config = await loadPushConfig();
   if (config.state === "disabled") return "not-configured";
   if (config.state !== "ready") return "server-unavailable";
-
+  // After preloading, another gesture may be needed to create a subscription.
   return preparedPush ? "pending" : "worker-unavailable";
 }
 
@@ -348,8 +359,7 @@ async function setupPushInternal(): Promise<PushSetupResult> {
   try {
     const key = vapidKeyToArrayBuffer(config.key);
     const subscription = await registration.pushManager.getSubscription();
-
-
+    // Background checks can rebind an existing subscription, never create one.
     if (!subscription || !samePublicKey(subscription, key)) return "pending";
     if (!getOperatorProfile()) return "device-error";
 
@@ -408,7 +418,7 @@ export async function sendRealPushTest(): Promise<RealPushTestResult> {
     return failure("اعلان آزمایشی برای این دستگاه در دسترس نیست.");
   }
 
-
+  // Force a server rebind in case the previous endpoint was deactivated.
   lastBoundAt = 0;
   if ((await ensureWebPushSubscription()) !== "active") {
     return failure("اتصال اعلان سرور هنوز فعال نیست.");
